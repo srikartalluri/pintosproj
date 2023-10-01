@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "list.h"
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -64,6 +65,7 @@ pid_t process_execute(const char* file_name) {
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
   return tid;
@@ -77,6 +79,8 @@ static void start_process(void* file_name_) {
   struct intr_frame if_;
   bool success, pcb_success;
 
+  char* save_ptr;
+  char* initial_token = strtok_r((char*)file_name, " ", &save_ptr);
   /* Allocate process control block */
   struct process* new_pcb = malloc(sizeof(struct process));
   success = pcb_success = new_pcb != NULL;
@@ -90,7 +94,9 @@ static void start_process(void* file_name_) {
 
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
-    strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+
+    // set the process name as the initial token
+    strlcpy(t->pcb->process_name, initial_token, sizeof t->name);
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -99,7 +105,10 @@ static void start_process(void* file_name_) {
     if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
-    success = load(file_name, &if_.eip, &if_.esp);
+
+    // load from the initial token instead of the file_name
+    // file_name in this case includes arguments
+    success = load(initial_token, &if_.eip, &if_.esp);
   }
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
@@ -111,6 +120,86 @@ static void start_process(void* file_name_) {
     t->pcb = NULL;
     free(pcb_to_free);
   }
+
+  /* Setup the userarguments to be above the stack ptr */
+  char* token = initial_token;
+  int argc = 0;
+
+  typedef struct list_elem list_elem;
+  typedef struct list list;
+  typedef struct list_item {
+    char* ptr;
+    list_elem elem;
+  } item;
+
+  list lst;
+  list_init(&lst);
+
+  // Open ended right bound at the top of the stack
+  void* nxt_ptr = PHYS_BASE;
+
+  const int MAX_ITEMS = 200;
+  item items_buffer[MAX_ITEMS];
+
+  int item_idx = 0;
+  while (token != NULL) {
+    argc++;
+
+    // number of bytes in this token
+    int num_bytes_of_token = strlen(token) + 1;
+
+    // kvaddr of the relevant argument
+    char* copy = (char*)pagedir_get_page(t->pcb->pagedir, nxt_ptr - num_bytes_of_token);
+
+    // making a list item
+    item* item_here = &items_buffer[item_idx];
+    // setting list item to include the uvaddr of next pointer
+    item_here->ptr = nxt_ptr - num_bytes_of_token;
+
+    // adding item to list
+    list_push_back(&lst, &(item_here->elem));
+
+    // copying to kvaddr (we are in the kernel)
+    strlcpy(copy, token, num_bytes_of_token);
+    // moving open-ended bound of pointer
+    nxt_ptr -= num_bytes_of_token;
+    token = strtok_r(NULL, " ", &save_ptr);
+    item_idx++;
+  }
+
+  ASSERT(list_size(&lst) == (size_t)argc);
+  char** argv = nxt_ptr - (argc + 1) * sizeof(char*);
+  {
+    int i = 0;
+    for (list_elem* e = list_begin(&lst); e != list_end(&lst); e = list_next(e)) {
+      item* entry = list_entry(e, item, elem);
+      char** kernel_argv_ptr = pagedir_get_page(t->pcb->pagedir, argv + i);
+      *kernel_argv_ptr = entry->ptr;
+      i++;
+    }
+  }
+
+  { // set kernel argv ptr to be null explicitly (null padding at the end of argv)
+    char** kernel_argv_ptr = pagedir_get_page(t->pcb->pagedir, argv + argc);
+    kernel_argv_ptr = NULL;
+  }
+
+  // make nxt_ptr aligned with the start of the argv array
+  // (argc + 1) * sizeof(char*) is the size of the argv array
+  nxt_ptr -= (argc + 1) * sizeof(char*);
+
+  // make room for arguments
+  if_.esp = nxt_ptr - 12;
+
+  // stack alignment
+  while ((uint32_t)(if_.esp) % 16 != 12) {
+    if_.esp--;
+  }
+
+  int* address_argc = pagedir_get_page(t->pcb->pagedir, if_.esp + 4);
+  char*** address_argv = pagedir_get_page(t->pcb->pagedir, if_.esp + 8);
+  *address_argc = argc;
+  *address_argv = argv;
 
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(file_name);
