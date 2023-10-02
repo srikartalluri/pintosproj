@@ -26,6 +26,7 @@ static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
+typedef struct list_elem list_elem;
 
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
@@ -34,6 +35,10 @@ bool setup_thread(void (**eip)(void), void** esp);
 void userprog_init(void) {
   struct thread* t = thread_current();
   bool success;
+  typedef struct list list;
+  typedef struct list_elem list_elem;
+  list child_list;
+  list_init(&child_list);
 
   /* Allocate process control block
      It is imoprtant that this is a call to calloc and not malloc,
@@ -41,6 +46,7 @@ void userprog_init(void) {
      page directory) when t->pcb is assigned, because a timer interrupt
      can come at any time and activate our pagedir */
   t->pcb = calloc(sizeof(struct process), 1);
+  t->pcb->child_list = child_list;
   success = t->pcb != NULL;
 
   /* Kill the kernel if we did not succeed */
@@ -54,6 +60,11 @@ void userprog_init(void) {
 pid_t process_execute(const char* file_name) {
   char* fn_copy;
   tid_t tid;
+  int err = 0;
+
+  child_node* boy;
+  boy = malloc(sizeof(child_node));
+  struct thread* t = thread_current();
 
   sema_init(&temporary, 0);
   /* Make a copy of FILE_NAME.
@@ -62,9 +73,15 @@ pid_t process_execute(const char* file_name) {
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
+  err = init_sharing((boy));
+  if (err != 0) {
+    return err;
+  }
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  set_tid(tid, boy);
+  list_push_back(&(t->pcb->child_list), boy);
 
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
@@ -77,6 +94,8 @@ static void start_process(void* file_name_) {
   char* file_name = (char*)file_name_;
   struct thread* t = thread_current();
   struct intr_frame if_;
+  child_node* chosen_one;
+  chosen_one = getkid(t->tid, t->pcb->child_list);
   bool success, pcb_success;
 
   char* save_ptr;
@@ -109,6 +128,9 @@ static void start_process(void* file_name_) {
     // load from the initial token instead of the file_name
     // file_name in this case includes arguments
     success = load(initial_token, &if_.eip, &if_.esp);
+    if (success) {
+      sema_up(&(chosen_one->sema));
+    }
   }
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
@@ -119,6 +141,7 @@ static void start_process(void* file_name_) {
     struct process* pcb_to_free = t->pcb;
     t->pcb = NULL;
     free(pcb_to_free);
+    //sema_up(&(chosen_one->sema));
   }
 
   /* Setup the userarguments to be above the stack ptr */
@@ -205,6 +228,7 @@ static void start_process(void* file_name_) {
   palloc_free_page(file_name);
   if (!success) {
     sema_up(&temporary);
+    sema_up(&(chosen_one->sema));
     thread_exit();
   }
 
@@ -227,9 +251,16 @@ static void start_process(void* file_name_) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(pid_t child_pid UNUSED) {
+int process_wait(pid_t child_pid) {
+  int to_ret = 0;
+  struct thread* t = thread_current();
+  child_node* chosen_one = getkid(child_pid, t->pcb->child_list);
+  sema_down(&(chosen_one->sema));
+  list_remove(&(chosen_one->elem));
+  to_ret = chosen_one->err_code;
+  free(chosen_one);
   sema_down(&temporary);
-  return 0;
+  return to_ret;
 }
 
 /* Free the current process's resources. */

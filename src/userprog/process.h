@@ -2,6 +2,7 @@
 #define USERPROG_PROCESS_H
 
 #include "threads/thread.h"
+#include "list.h"
 #include <stdint.h>
 
 // At most 8MB can be allocated to the stack
@@ -27,7 +28,17 @@ struct process {
   uint32_t* pagedir;          /* Page directory. */
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
+  struct list child_list;
 };
+
+typedef struct list_elem list_elem;
+typedef struct child_node {
+  struct semaphore sema;
+  int ref_cnt;
+  list_elem elem;
+  pid_t pid;
+  int err_code;
+} child_node;
 
 void userprog_init(void);
 
