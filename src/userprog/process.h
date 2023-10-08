@@ -2,6 +2,8 @@
 #define USERPROG_PROCESS_H
 
 #include "threads/thread.h"
+#include "threads/synch.h"
+#include "lib/kernel/list.h"
 #include <stdint.h>
 
 // At most 8MB can be allocated to the stack
@@ -17,6 +19,23 @@ typedef tid_t pid_t;
 typedef void (*pthread_fun)(void*);
 typedef void (*stub_fun)(pthread_fun, void*);
 
+/* Item indicating a process chlid to be stored in a list */
+/* Includes shared synchronization primitives */
+/* Semaphores to control running of the process */
+/* Locks to create critical sections for the semaphore */
+/* Reference counts to control freeing of the process */
+struct process_child_item {
+  struct semaphore semaphore;
+  struct lock lock;
+  size_t ref_cnt;
+  pid_t pid;
+  char* file_name;
+  bool successful_load;
+  bool waited;
+  int exit_code;
+  struct list_elem elem;
+};
+
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate
    PCB from the TCB. All TCBs in a process will have a pointer
@@ -24,9 +43,11 @@ typedef void (*stub_fun)(pthread_fun, void*);
    of the process, which is `special`. */
 struct process {
   /* Owned by process.c. */
-  uint32_t* pagedir;          /* Page directory. */
-  char process_name[16];      /* Name of the main thread */
-  struct thread* main_thread; /* Pointer to main thread */
+  uint32_t* pagedir;                   /* Page directory. */
+  char process_name[16];               /* Name of the main thread */
+  struct thread* main_thread;          /* Pointer to main thread */
+  struct list children_list;           /* list of children processes */
+  struct process_child_item* item_ptr; /* pointer to list_item of parent */
 };
 
 void userprog_init(void);
