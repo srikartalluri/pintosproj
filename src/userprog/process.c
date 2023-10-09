@@ -24,6 +24,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "userprog/syscall.h"
+#include "userprog/syscall.h"
 
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
@@ -81,11 +82,27 @@ void remove_child_reference(struct process_child_item* c) {
   return;
 }
 
+// free the file name
+void remove_child_reference(struct process_child_item* c) {
+  lock_acquire(&c->lock);
+  c->ref_cnt--;
+
+  if (c->ref_cnt == 0) {
+    lock_release(&c->lock);
+    free(c->file_name);
+    free(c);
+    return;
+  }
+  lock_release(&c->lock);
+  return;
+}
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    process id, or TID_ERROR if the thread cannot be created. */
 pid_t process_execute(const char* file_name) {
+  struct process_child_item* process_child;
   struct process_child_item* process_child;
   tid_t tid;
   int err = 0;
@@ -132,11 +149,36 @@ pid_t process_execute(const char* file_name) {
   } else {
     list_push_back(&thread_current()->pcb->children_list, &process_child->elem);
   }
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, process_child);
+
+  // try to down the semaphore (will be upped by when load executable finishes)
+  sema_down(&process_child->semaphore);
+
+  bool successful_load = true;
+  lock_acquire(&process_child->lock);
+  successful_load = process_child->successful_load;
+  lock_release(&process_child->lock);
+
+  if (tid == TID_ERROR || !successful_load) {
+    remove_child_reference(process_child);
+    // never added to children list because it fails
+    return -1;
+  } else {
+    list_push_back(&thread_current()->pcb->children_list, &process_child->elem);
+  }
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
+static void start_process(void* process_item_) {
+  struct process_child_item* process_item = (struct process_child_item*)process_item_;
+
+  lock_acquire(&process_item->lock);
+  process_item->ref_cnt++;
+  lock_release(&process_item->lock);
+
+  char* file_name = process_item->file_name;
 static void start_process(void* process_item_) {
   struct process_child_item* process_item = (struct process_child_item*)process_item_;
 
@@ -174,9 +216,15 @@ static void start_process(void* process_item_) {
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
     list_init(&t->pcb->children_list);
+    list_init(&t->pcb->children_list);
 
     // set the process name as the initial token
     strlcpy(t->pcb->process_name, initial_token, sizeof t->name);
+    t->pcb->item_ptr = process_item;
+
+    lock_acquire(&process_item->lock);
+    process_item->pid = get_pid(t->pcb);
+    lock_release(&process_item->lock);
     t->pcb->item_ptr = process_item;
 
     lock_acquire(&process_item->lock);
@@ -201,9 +249,27 @@ static void start_process(void* process_item_) {
       asm volatile("frstor (%0)" :: "r"(&temp_fpu));
     }
 
+    { // Store an empty fpu in the interrupt frame every switch starts on an empty fpu?
+      uint8_t temp_fpu[108];
+      asm volatile("fsave (%0)" :: "r"(&temp_fpu));
+      asm volatile("finit");
+
+      // store fresh copy in switch frame (switching to fresh fpu)
+      asm volatile("fsave (%0)" :: "r"(&if_.fpu));
+      asm volatile("frstor (%0)" :: "r"(&temp_fpu));
+    }
+
     // load from the initial token instead of the file_name
     // file_name in this case includes arguments
     success = load(initial_token, &if_.eip, &if_.esp);
+    if (!success) {
+      lock_acquire(&process_item->lock);
+      process_item->successful_load = false;
+      lock_release(&process_item->lock);
+    }
+    sema_up(&process_item->semaphore);
+
+    // now that it's loaded, we don't need to stop the parent from doing aynthing so we can remove our reference to the parent
     if (!success) {
       lock_acquire(&process_item->lock);
       process_item->successful_load = false;
@@ -227,12 +293,11 @@ static void start_process(void* process_item_) {
 
   /* Clean up. Exit on failure or jump to userspace */
   // Not a successful load
-  if (!success) {
-    // sema_up(&temporary);
-    sema_up(&process_item->semaphore);
-    remove_child_reference(process_item);
-    thread_exit();
-  }
+ 
+
+  /* Clean up. Exit on failure or jump to userspace */
+  // Not a successful load
+  
 
   /* Clean up. Exit on failure or jump to userspace */
   // Not a successful load
@@ -252,14 +317,6 @@ static void start_process(void* process_item_) {
     thread_exit();
   }
 
-  /* Clean up. Exit on failure or jump to userspace */
-  // Not a successful load
-  if (!success) {
-    // sema_up(&temporary);
-    sema_up(&process_item->semaphore);
-    remove_child_reference(process_item);
-    thread_exit();
-  }
 
   /* Setup the userarguments to be above the stack ptr */
   char* token = initial_token;
@@ -269,6 +326,7 @@ static void start_process(void* process_item_) {
   void* nxt_ptr = PHYS_BASE;
 
   const int MAX_ITEMS = 200;
+  char* arguments_buffer[MAX_ITEMS];
   char* arguments_buffer[MAX_ITEMS];
 
   int item_idx = 0;
@@ -284,8 +342,6 @@ static void start_process(void* process_item_) {
 
     // setting the location of the item to the corresponding virtual address
     arguments_buffer[item_idx] = nxt_ptr - num_bytes_of_token;
-    // setting the location of the item to the corresponding virtual address
-    arguments_buffer[item_idx] = nxt_ptr - num_bytes_of_token;
 
     // copying to kvaddr (we are in the kernel)
     strlcpy(copy, token, num_bytes_of_token);
@@ -299,11 +355,10 @@ static void start_process(void* process_item_) {
   {
     for (int i = 0; i < argc; i++) {
       char* entry = arguments_buffer[i];
-    for (int i = 0; i < argc; i++) {
-      char* entry = arguments_buffer[i];
+    
       char** kernel_argv_ptr = pagedir_get_page(t->pcb->pagedir, argv + i);
       *kernel_argv_ptr = entry;
-      *kernel_argv_ptr = entry;
+     
     }
   }
 
@@ -398,8 +453,7 @@ int process_wait(pid_t child_pid) {
     }
   }
 
-  return -1;
-}
+  return -1;}
 
 /* Free the current process's resources. */
 void process_exit(int code) {

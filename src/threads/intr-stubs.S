@@ -17,6 +17,10 @@
 */
 .func intr_entry
 intr_entry:
+   /* Save fpu */
+	subl $108, %esp
+	fsave (%esp)
+
 	/* Save caller's registers. */
 	pushl %ds
 	pushl %es
@@ -29,7 +33,7 @@ intr_entry:
 	mov $SEL_KDSEG, %eax	/* Initialize segment registers. */
 	mov %eax, %ds
 	mov %eax, %es
-	leal 56(%esp), %ebp	/* Set up frame pointer. */
+	leal 164(%esp), %ebp	/* Set up frame pointer. */
 
 	/* Call interrupt handler. */
 	pushl %esp
@@ -55,6 +59,10 @@ intr_exit:
 	popl %fs
 	popl %es
 	popl %ds
+
+   /* Restore caller's FPU */
+	frstor  0(%esp)
+	addl $108, %esp
 
         /* Discard `struct intr_frame' vec_no, error_code,
            frame_pointer members. */

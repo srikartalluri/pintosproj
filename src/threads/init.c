@@ -112,6 +112,8 @@ int main(void) {
   exception_init();
   syscall_init();
 #endif
+  /* initialize floating point */
+  asm volatile("finit");
 
   /* Start thread scheduler and enable interrupts. */
   thread_start();

@@ -31,6 +31,7 @@ struct intr_frame {
   uint16_t fs, : 16;  /* Saved FS segment register. */
   uint16_t es, : 16;  /* Saved ES segment register. */
   uint16_t ds, : 16;  /* Saved DS segment register. */
+  uint8_t fpu[108];   /* Saved FPU*/
 
   /* Pushed by intrNN_stub in intr-stubs.S. */
   uint32_t vec_no; /* Interrupt vector number. */
