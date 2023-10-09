@@ -5,7 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "list.h"
+#include "lib/kernel/list.h"
+
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -20,6 +21,9 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+#include "userprog/syscall.h"
 
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
@@ -28,17 +32,24 @@ static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 typedef struct list_elem list_elem;
 
+static inline bool is_head(struct list_elem* elem) {
+  return elem != NULL && elem->prev == NULL && elem->next != NULL;
+}
+static inline bool is_interior(struct list_elem* elem) {
+  return elem != NULL && elem->prev != NULL && elem->next != NULL;
+}
+
+
+
+
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
    the first user process. Any additions to the PCB should be also
    initialized here if main needs those members */
+
 void userprog_init(void) {
   struct thread* t = thread_current();
   bool success;
-  typedef struct list list;
-  typedef struct list_elem list_elem;
-  list child_list;
-  list_init(&child_list);
 
   /* Allocate process control block
      It is imoprtant that this is a call to calloc and not malloc,
@@ -46,11 +57,28 @@ void userprog_init(void) {
      page directory) when t->pcb is assigned, because a timer interrupt
      can come at any time and activate our pagedir */
   t->pcb = calloc(sizeof(struct process), 1);
-  t->pcb->child_list = child_list;
   success = t->pcb != NULL;
+
+  list_init(&t->pcb->children_list);
+  t->pcb->item_ptr = NULL;
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
+}
+
+// free the file name
+void remove_child_reference(struct process_child_item* c) {
+  lock_acquire(&c->lock);
+  c->ref_cnt--;
+
+  if (c->ref_cnt == 0) {
+    lock_release(&c->lock);
+    free(c->file_name);
+    free(c);
+    return;
+  }
+  lock_release(&c->lock);
+  return;
 }
 
 /* Starts a new thread running a user program loaded from
@@ -58,48 +86,80 @@ void userprog_init(void) {
    before process_execute() returns.  Returns the new process's
    process id, or TID_ERROR if the thread cannot be created. */
 pid_t process_execute(const char* file_name) {
-  char* fn_copy;
+  struct process_child_item* process_child;
   tid_t tid;
   int err = 0;
-
-  child_node* boy;
-  boy = malloc(sizeof(child_node));
   struct thread* t = thread_current();
 
-  sema_init(&temporary, 0);
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page(0);
   if (fn_copy == NULL)
+  // sema_init(&temporary, 0);
+  /* Make a copy of FILE_NAME.  
+  Otherwise there's a race between the caller and load(). */
+  process_child = (struct process_child_item*)malloc(sizeof(struct process_child_item));
+  if (process_child == NULL)
     return TID_ERROR;
   strlcpy(fn_copy, file_name, PGSIZE);
-  err = init_sharing((boy));
-  if (err != 0) {
-    return err;
-  }
+
+  size_t len_of_string = strlen(file_name) + 1;
+  process_child->file_name = (char*)malloc(sizeof(char) * (len_of_string));
+  strlcpy(process_child->file_name, file_name, len_of_string);
+  process_child->ref_cnt = 1;
+  process_child->pid = -1;
+  process_child->successful_load = true;
+  process_child->exit_code = -1;
+  process_child->waited = false;
+  sema_init(&process_child->semaphore, 0);
+  lock_init(&process_child->lock);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
-  set_tid(tid, boy);
-  list_push_back(&(t->pcb->child_list), boy);
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, process_child);
 
-  if (tid == TID_ERROR)
-    palloc_free_page(fn_copy);
+  // try to down the semaphore (will be upped by when load executable finishes)
+  sema_down(&process_child->semaphore);
+
+  bool successful_load = true;
+  lock_acquire(&process_child->lock);
+  successful_load = process_child->successful_load;
+  lock_release(&process_child->lock);
+
+  if (tid == TID_ERROR || !successful_load) {
+    remove_child_reference(process_child);
+    // never added to children list because it fails
+    return -1;
+  } else {
+    list_push_back(&thread_current()->pcb->children_list, &process_child->elem);
+  }
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
-static void start_process(void* file_name_) {
-  char* file_name = (char*)file_name_;
+static void start_process(void* process_item_) {
+  struct process_child_item* process_item = (struct process_child_item*)process_item_;
+
+  lock_acquire(&process_item->lock);
+  process_item->ref_cnt++;
+  lock_release(&process_item->lock);
+
+  char* file_name = process_item->file_name;
   struct thread* t = thread_current();
+
   struct intr_frame if_;
   child_node* chosen_one;
-  chosen_one = getkid(t->tid, t->pcb->child_list);
+
   bool success, pcb_success;
 
   char* save_ptr;
   char* initial_token = strtok_r((char*)file_name, " ", &save_ptr);
+  struct file* file = filesys_open(initial_token);
+  if (file == NULL) {
+    t->node->err_code = -1;
+    sema_up(&(t->node->sema));
+    return;
+  }
   /* Allocate process control block */
   struct process* new_pcb = malloc(sizeof(struct process));
   success = pcb_success = new_pcb != NULL;
@@ -113,9 +173,15 @@ static void start_process(void* file_name_) {
 
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
+    list_init(&t->pcb->children_list);
 
     // set the process name as the initial token
     strlcpy(t->pcb->process_name, initial_token, sizeof t->name);
+    t->pcb->item_ptr = process_item;
+
+    lock_acquire(&process_item->lock);
+    process_item->pid = get_pid(t->pcb);
+    lock_release(&process_item->lock);
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -125,12 +191,27 @@ static void start_process(void* file_name_) {
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
 
+    { // Store an empty fpu in the interrupt frame every switch starts on an empty fpu?
+      uint8_t temp_fpu[108];
+      asm volatile("fsave (%0)" :: "r"(&temp_fpu));
+      asm volatile("finit");
+
+      // store fresh copy in switch frame (switching to fresh fpu)
+      asm volatile("fsave (%0)" :: "r"(&if_.fpu));
+      asm volatile("frstor (%0)" :: "r"(&temp_fpu));
+    }
+
     // load from the initial token instead of the file_name
     // file_name in this case includes arguments
     success = load(initial_token, &if_.eip, &if_.esp);
-    if (success) {
-      sema_up(&(chosen_one->sema));
+    if (!success) {
+      lock_acquire(&process_item->lock);
+      process_item->successful_load = false;
+      lock_release(&process_item->lock);
     }
+    sema_up(&process_item->semaphore);
+
+    // now that it's loaded, we don't need to stop the parent from doing aynthing so we can remove our reference to the parent
   }
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
@@ -141,30 +222,57 @@ static void start_process(void* file_name_) {
     struct process* pcb_to_free = t->pcb;
     t->pcb = NULL;
     free(pcb_to_free);
-    //sema_up(&(chosen_one->sema));
+   
+  }
+
+  /* Clean up. Exit on failure or jump to userspace */
+  // Not a successful load
+  if (!success) {
+    // sema_up(&temporary);
+    sema_up(&process_item->semaphore);
+    remove_child_reference(process_item);
+    thread_exit();
+  }
+
+  /* Clean up. Exit on failure or jump to userspace */
+  // Not a successful load
+  if (!success) {
+    // sema_up(&temporary);
+    sema_up(&process_item->semaphore);
+    remove_child_reference(process_item);
+    thread_exit();
+  }
+
+  /* Clean up. Exit on failure or jump to userspace */
+  // Not a successful load
+  if (!success) {
+    // sema_up(&temporary);
+    sema_up(&process_item->semaphore);
+    remove_child_reference(process_item);
+    thread_exit();
+  }
+
+  /* Clean up. Exit on failure or jump to userspace */
+  // Not a successful load
+  if (!success) {
+    // sema_up(&temporary);
+    sema_up(&process_item->semaphore);
+    remove_child_reference(process_item);
+    thread_exit();
   }
 
   /* Setup the userarguments to be above the stack ptr */
   char* token = initial_token;
   int argc = 0;
 
-  typedef struct list_elem list_elem;
-  typedef struct list list;
-  typedef struct list_item {
-    char* ptr;
-    list_elem elem;
-  } item;
-
-  list lst;
-  list_init(&lst);
-
   // Open ended right bound at the top of the stack
   void* nxt_ptr = PHYS_BASE;
 
   const int MAX_ITEMS = 200;
-  item items_buffer[MAX_ITEMS];
+  char* arguments_buffer[MAX_ITEMS];
 
   int item_idx = 0;
+
   while (token != NULL) {
     argc++;
 
@@ -174,13 +282,10 @@ static void start_process(void* file_name_) {
     // kvaddr of the relevant argument
     char* copy = (char*)pagedir_get_page(t->pcb->pagedir, nxt_ptr - num_bytes_of_token);
 
-    // making a list item
-    item* item_here = &items_buffer[item_idx];
-    // setting list item to include the uvaddr of next pointer
-    item_here->ptr = nxt_ptr - num_bytes_of_token;
-
-    // adding item to list
-    list_push_back(&lst, &(item_here->elem));
+    // setting the location of the item to the corresponding virtual address
+    arguments_buffer[item_idx] = nxt_ptr - num_bytes_of_token;
+    // setting the location of the item to the corresponding virtual address
+    arguments_buffer[item_idx] = nxt_ptr - num_bytes_of_token;
 
     // copying to kvaddr (we are in the kernel)
     strlcpy(copy, token, num_bytes_of_token);
@@ -190,15 +295,15 @@ static void start_process(void* file_name_) {
     item_idx++;
   }
 
-  ASSERT(list_size(&lst) == (size_t)argc);
   char** argv = nxt_ptr - (argc + 1) * sizeof(char*);
   {
-    int i = 0;
-    for (list_elem* e = list_begin(&lst); e != list_end(&lst); e = list_next(e)) {
-      item* entry = list_entry(e, item, elem);
+    for (int i = 0; i < argc; i++) {
+      char* entry = arguments_buffer[i];
+    for (int i = 0; i < argc; i++) {
+      char* entry = arguments_buffer[i];
       char** kernel_argv_ptr = pagedir_get_page(t->pcb->pagedir, argv + i);
-      *kernel_argv_ptr = entry->ptr;
-      i++;
+      *kernel_argv_ptr = entry;
+      *kernel_argv_ptr = entry;
     }
   }
 
@@ -224,11 +329,15 @@ static void start_process(void* file_name_) {
   *address_argc = argc;
   *address_argv = argv;
 
+  { // set kernel argv ptr to be null explicitly (null padding at the end of argv)
+    char** kernel_argv_ptr = pagedir_get_page(t->pcb->pagedir, argv + argc);
+    kernel_argv_ptr = NULL;
+  }
+
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(file_name);
   if (!success) {
     sema_up(&temporary);
-    sema_up(&(chosen_one->sema));
     thread_exit();
   }
 
@@ -252,27 +361,81 @@ static void start_process(void* file_name_) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid) {
-  int to_ret = 0;
+  // sema_down(&temporary);
   struct thread* t = thread_current();
-  child_node* chosen_one = getkid(child_pid, t->pcb->child_list);
-  sema_down(&(chosen_one->sema));
-  list_remove(&(chosen_one->elem));
-  to_ret = chosen_one->err_code;
-  free(chosen_one);
-  sema_down(&temporary);
-  return to_ret;
+
+  /*
+    1) Look for the child in the pcb children list
+    2) Acquire the relevant locks on the shared child item
+    3) If the parent is waiting on something already waited for set already waited and return.
+      - Child should not set this already waited for feature since parent is supposed to return child's exit code
+    4) Down the semaphore to wait
+    5) Exit procedure
+  */
+  bool found_child = false;
+  for (struct list_elem* e = list_begin(&t->pcb->children_list);
+       e != list_end(&t->pcb->children_list); e = list_next(e)) {
+    struct process_child_item* item = list_entry(e, struct process_child_item, elem);
+    if (item->pid == child_pid) {
+      found_child = true;
+
+      bool already_waited = false;
+      lock_acquire(&item->lock);
+      if (item->waited)
+        already_waited = true;
+      lock_release(&item->lock);
+
+      if (already_waited)
+        return -1;
+
+      sema_down(&item->semaphore);
+      int ret_value = -1;
+      lock_acquire(&item->lock);
+      ret_value = item->exit_code;
+      item->waited = true;
+      lock_release(&item->lock);
+      return ret_value;
+    }
+  }
+
+  return -1;
 }
 
 /* Free the current process's resources. */
-void process_exit(void) {
+void process_exit(int code) {
   struct thread* cur = thread_current();
   uint32_t* pd;
+  cur->node->err_code = code;
+  sema_up(&(cur->node->sema));
+
+  cur->node->ref_cnt = cur->node->ref_cnt - 1;
 
   /* If this thread does not have a PCB, don't worry */
   if (cur->pcb == NULL) {
     thread_exit();
     NOT_REACHED();
   }
+
+  int pid = get_pid(cur->pcb);
+
+  struct process* pcb_to_free = cur->pcb;
+  {
+    const int MAX_CHILD_ITEMS = 200;
+    struct process_child_item* child_items_buffer[MAX_CHILD_ITEMS];
+    // must do the freeing after all the items are in the buffer (cannot do freeing during list traversal)
+    int num_items = 0;
+    for (struct list_elem* e = list_begin(&pcb_to_free->children_list);
+         e != list_end(&pcb_to_free->children_list); e = list_next(e), num_items++) {
+      struct process_child_item* entry = list_entry(e, struct process_child_item, elem);
+      child_items_buffer[num_items] = entry;
+    }
+
+    for (int i = 0; i < num_items; i++) {
+      remove_child_reference(child_items_buffer[i]);
+    }
+  }
+
+  struct process_child_item* item = cur->pcb->item_ptr;
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -294,11 +457,15 @@ void process_exit(void) {
      Avoid race where PCB is freed before t->pcb is set to NULL
      If this happens, then an unfortuantely timed timer interrupt
      can try to activate the pagedir, but it is now freed memory */
-  struct process* pcb_to_free = cur->pcb;
   cur->pcb = NULL;
   free(pcb_to_free);
 
-  sema_up(&temporary);
+  // sema_up(&temporary);
+  lock_acquire(&item->lock);
+  sema_up(&item->semaphore);
+  lock_release(&item->lock);
+  remove_child_reference(item);
+  free_file_descriptors_for_process(pid);
   thread_exit();
 }
 
@@ -405,6 +572,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   /* Open executable file. */
   file = filesys_open(file_name);
   if (file == NULL) {
+    t->node->err_code = -1;
     printf("load: %s: open failed\n", file_name);
     goto done;
   }
