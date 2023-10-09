@@ -43,7 +43,7 @@ void free_file_descriptors_for_process(pid_t pid) {
       list_elem_buffer[buf_idx++] = file;
     }
   }
-  
+
   for (int i = 0; i < buf_idx; i++) {
     struct file_node* ptr = list_elem_buffer[i];
     list_remove(&ptr->elem);
@@ -61,7 +61,8 @@ Idt it works.
 */
 static void print_file_list() {
 
-  for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list); iter = list_next(iter)) {
+  for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list);
+       iter = list_next(iter)) {
 
     struct file_node* cur_file_node = list_entry(iter, struct file_node, elem);
     printf("file name: %s. fd: %d. pid: %d\n", cur_file_node->name, cur_file_node);
