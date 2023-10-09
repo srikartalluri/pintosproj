@@ -9,8 +9,7 @@ static void do_mkdir(const char* format, ...) PRINTF_FORMAT(1, 2);
 static void do_touch(const char* format, ...) PRINTF_FORMAT(1, 2);
 
 void make_tree(int at, int bt, int ct, int dt) {
-  char try
-    [128];
+  char try[128];
   int a, b, c, d;
   int fd;
 
