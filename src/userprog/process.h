@@ -50,15 +50,6 @@ struct process {
   struct process_child_item* item_ptr; /* pointer to list_item of parent */
 };
 
-typedef struct list_elem list_elem;
-typedef struct child_node {
-  struct semaphore sema;
-  int ref_cnt;
-  list_elem elem;
-  pid_t pid;
-  int err_code;
-} child_node;
-
 void userprog_init(void);
 
 pid_t process_execute(const char* file_name);

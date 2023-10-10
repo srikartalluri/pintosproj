@@ -138,13 +138,11 @@ static void found_partition(struct block* block, uint8_t part_type, block_sector
     printf("%s%d: Partition end (%" PRDSNu ") past end of device (%" PRDSNu ")\n",
            block_name(block), part_nr, start + size, block_size(block));
   else {
-    enum block_type type =
-        (part_type == 0x20
-             ? BLOCK_KERNEL
-             : part_type == 0x21
-                   ? BLOCK_FILESYS
-                   : part_type == 0x22 ? BLOCK_SCRATCH
-                                       : part_type == 0x23 ? BLOCK_SWAP : BLOCK_FOREIGN);
+    enum block_type type = (part_type == 0x20   ? BLOCK_KERNEL
+                            : part_type == 0x21 ? BLOCK_FILESYS
+                            : part_type == 0x22 ? BLOCK_SCRATCH
+                            : part_type == 0x23 ? BLOCK_SWAP
+                                                : BLOCK_FOREIGN);
     struct partition* p;
     char extra_info[128];
     char name[16];
