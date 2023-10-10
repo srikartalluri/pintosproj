@@ -15,5 +15,9 @@ void test_main(void) {
   if (filesize(handle) != (sizeof sample) >> 1)
     fail("extended filesize");
   close(handle);
+  seek(handle,0);
+  byte_cnt = write(handle, sample, sizeof sample - 1);
+  if(byte_cnt != -1)
+    fail("wrote to non-existent file");
   remove("sample2.txt");
 }
