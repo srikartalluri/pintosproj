@@ -22,6 +22,7 @@ lib/user_SRC += lib/user/syscall.c	# System calls.
 lib/user_SRC += lib/user/pthread.c	# pthread Library
 lib/user_SRC += lib/user/console.c	# Console code.
 
+
 LIB_OBJ = $(patsubst %.c,%.o,$(patsubst %.S,%.o,$(lib_SRC) $(lib/user_SRC)))
 LIB_DEP = $(patsubst %.o,%.d,$(LIB_OBJ))
 LIB = lib/user/entry.o libc.a

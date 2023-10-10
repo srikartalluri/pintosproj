@@ -162,12 +162,12 @@ static void start_process(void* process_item_) {
 
     { // Store an empty fpu in the interrupt frame every switch starts on an empty fpu?
       uint8_t temp_fpu[108];
-      asm volatile("fsave (%0)" :: "r"(&temp_fpu));
+      asm volatile("fsave (%0)" ::"r"(&temp_fpu));
       asm volatile("finit");
 
       // store fresh copy in switch frame (switching to fresh fpu)
-      asm volatile("fsave (%0)" :: "r"(&if_.fpu));
-      asm volatile("frstor (%0)" :: "r"(&temp_fpu));
+      asm volatile("fsave (%0)" ::"r"(&if_.fpu));
+      asm volatile("frstor (%0)" ::"r"(&temp_fpu));
     }
 
     // load from the initial token instead of the file_name
