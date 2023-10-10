@@ -15,4 +15,5 @@ void test_main(void) {
   if (filesize(handle) != (sizeof sample) >> 1)
     fail("extended filesize");
   close(handle);
+  remove("sample2.txt");
 }
