@@ -373,6 +373,7 @@ static void idle(void* idle_started_ UNUSED) {
     /* Let someone else run. */
     intr_disable();
     thread_block();
+    intr_enable();
 
     /* Re-enable interrupts and wait for the next one.
 
