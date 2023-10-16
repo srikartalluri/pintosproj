@@ -26,12 +26,6 @@ int counters[8];
 char* thread_names[8] = {"t-min+00", "t-min+08", "t-min+16", "t-min+24",
                          "t-min+32", "t-min+40", "t-min+48", "t-min+56"};
 
-<<<<<<< HEAD
-=======
-static struct semaphore barrier_sema;
-static bool keep_looping = true;
->>>>>>> a877db2c54a85147b1a4c146aff90bca6d319d0f
-
 static bool keep_looping = true;
 struct semaphore barrier_sema;
 void test_smfs_hierarchy(size_t num_threads) {
