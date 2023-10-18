@@ -26,7 +26,7 @@ TEST(16);
 TEST(64);
 TEST(256);
 
-struct semaphore barr_sema;
+static struct semaphore barrier_sema;
 struct semaphore sleep_sema;
 
 void test_smfs_starve(size_t competing_threads) {
@@ -36,7 +36,7 @@ void test_smfs_starve(size_t competing_threads) {
   thread_set_priority(PRI_MAX);
 
   /* Stop all threads from running until we're done spawning. */
-  sema_init(&barr_sema, 0);
+  sema_init(&barrier_sema, 0);
   barrier();
 
   msg("Spawning competitor threads...");
@@ -53,7 +53,7 @@ void test_smfs_starve(size_t competing_threads) {
   /* Release barrier */
   barrier();
   for (size_t i = 0; i < competing_threads; i++)
-    sema_up(&barr_sema);
+    sema_up(&barrier_sema);
 
   /* Create low-priority thread */
   sema_init(&sleep_sema, 0);
@@ -78,7 +78,7 @@ static void starving_thread_func(void* aux UNUSED) {
 static void greedy_thread_func(void* aux UNUSED) {
   volatile uint32_t state = 0xCCCCCCCC;
 
-  sema_down(&barr_sema);
+  sema_down(&barrier_sema);
 
   /* computes a 32-bit xorshift in a loop */
   while (true) {
