@@ -89,9 +89,11 @@ struct thread {
   uint8_t* stack;            /* Saved stack pointer. */
   int priority;              /* Priority. */
   struct list_elem allelem;  /* List element for all threads list. */
-
+  struct lock timer;
   /* Shared between thread.c and synch.c. */
-  struct list_elem elem; /* List element. */
+  struct list_elem elem;    /* List element. */
+  struct list_elem sleepin; /*list elem for sleeping threads list*/
+  int64_t wu_time;          /*time tick at which thread needs to wake up*/
 
 #ifdef USERPROG
   /* Owned by process.c. */
@@ -143,6 +145,9 @@ void thread_foreach(thread_action_func*, void*);
 
 int thread_get_priority(void);
 void thread_set_priority(int);
+
+bool prio_less(struct thread* t1, struct thread* t2);
+bool less_list(const struct list_elem* t1, const struct list_elem* t2, void* aux);
 
 int thread_get_nice(void);
 void thread_set_nice(int);

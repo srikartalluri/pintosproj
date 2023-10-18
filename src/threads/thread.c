@@ -243,10 +243,17 @@ static void thread_enqueue(struct thread* t) {
   ASSERT(intr_get_level() == INTR_OFF);
   ASSERT(is_thread(t));
 
-  if (active_sched_policy == SCHED_FIFO)
-    list_push_back(&fifo_ready_list, &t->elem);
-  else
-    PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
+  switch (active_sched_policy) {
+    case SCHED_FIFO:
+      list_push_back(&fifo_ready_list, &t->elem);
+      break;
+    case SCHED_PRIO:
+      list_push_back(&fifo_ready_list, &t->elem);
+      break;
+    default:
+      PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
+      break;
+  }
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.
@@ -463,10 +470,23 @@ static struct thread* thread_schedule_fifo(void) {
   else
     return idle_thread;
 }
-
+/*function sorting list of threads for priority scheduling*/
+bool less_list(const struct list_elem* t1, const struct list_elem* t2, void* aux) {
+  bool (*auxt)(struct thread*, struct thread*) = aux;
+  struct thread* T1 = list_entry(t1, struct thread, sleepin);
+  struct thread* T2 = list_entry(t2, struct thread, sleepin);
+  return (*auxt)(T1, T2);
+}
+/*compare priority of threads*/
+bool prio_less(struct thread* t1, struct thread* t2) { return t1->priority < t2->priority; }
 /* Strict priority scheduler */
 static struct thread* thread_schedule_prio(void) {
-  PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
+  if (!list_empty(&fifo_ready_list)) {
+    list_sort(&fifo_ready_list, less_list, prio_less);
+    return list_entry(list_pop_back(&fifo_ready_list), struct thread, elem);
+  } else {
+    return idle_thread;
+  }
 }
 
 /* Fair priority scheduler */
