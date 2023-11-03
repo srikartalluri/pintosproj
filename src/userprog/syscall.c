@@ -4,6 +4,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "userprog/process.h"
+#include "userprog/usersync.h"
 #include "devices/shutdown.h"
 #include "threads/synch.h"
 #include "filesys/filesys.h"
@@ -85,6 +86,7 @@ pid_t get_cur_pid() { return thread_current()->pcb->main_thread->tid; }
 void syscall_init(void) {
   // init lock
   lock_init(&file_lock);
+  usersync_init();
 
   // init the file system used for maintain files across all processes (i think)
   // On second thought, stuff works without it so? maybe don't need
@@ -452,6 +454,28 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     case SYS_PT_JOIN:
       f->eax = pthread_join(args[1]);
+      break;
+    case SYS_LOCK_INIT:
+      f->eax = sys_lock_init(args[1]);
+      break;
+    case SYS_LOCK_ACQUIRE:
+      sys_lock_acquire(args[1]);
+      f->eax = true;
+      break;
+    case SYS_LOCK_RELEASE:
+      sys_lock_release(args[1]);
+      f->eax = true;
+      break;
+    case SYS_SEMA_INIT:
+      f->eax = sys_sema_init(args[1], args[2]);
+      break;
+    case SYS_SEMA_DOWN:
+      sys_sema_down(args[1]);
+      f->eax = true;
+      break;
+    case SYS_SEMA_UP:
+      sys_sema_up(args[1]);
+      f->eax = true;
       break;
     case SYS_GET_TID:
       f->eax = thread_current()->tid;

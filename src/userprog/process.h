@@ -49,17 +49,7 @@ struct user_thread_item {
   uint8_t* user_vaddr_to_free;
 };
 
-struct lock_item {
-  char* lock_ptr;
-  struct lock* kernel_lock;
-  struct list_elem elem;
-};
 
-struct semaphore_item {
-  char* sema_ptr;
-  struct semaphore* kernel_semaphore;
-  struct list_elem elem;
-};
 
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate

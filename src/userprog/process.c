@@ -21,14 +21,14 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/syscall.h"
+#include "userprog/usersync.h"
 
 static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void** esp, void** kpage_set, void** uvaddr_set);
-struct user_thread_item* create_user_thread_item(struct thread* t, uint8_t* kpage,
-                                                 uint8_t* uvaddr);
+struct user_thread_item* create_user_thread_item(struct thread* t, uint8_t* kpage, uint8_t* uvaddr);
 
 // do a process exit under the assumption that all the arguments are valid
 void do_exit(int code) {
@@ -379,9 +379,9 @@ void process_exit(void) {
     user_thread_item_here->needs_to_stop = true;
     lock_release(&user_thread_item_here->lock);
     if (user_thread_item_here->tid != cur->tid) {
-     lock_release(&p->exit_lock);
-     tid_t ret = pthread_join(user_thread_item_here->tid);
-     lock_acquire(&p->exit_lock);
+      lock_release(&p->exit_lock);
+      tid_t ret = pthread_join(user_thread_item_here->tid);
+      lock_acquire(&p->exit_lock);
     }
   }
   lock_release(&p->exit_lock);
@@ -418,7 +418,7 @@ void process_exit(void) {
     }
   }
 
-  { // free the malloced lock item items 
+  { // free the malloced lock item items
     struct lock_item* lock_items_buffer[list_size(&pcb_to_free->user_lock_list)];
     // must do the freeing after all the items are in the buffer (cannot do freeing during list traversal)
     int num_items = 0;
@@ -433,7 +433,7 @@ void process_exit(void) {
     }
   }
 
-  { // free the malloced sema item items 
+  { // free the malloced sema item items
     struct semaphore_item* semaphore_items_buffer[list_size(&pcb_to_free->user_sema_list)];
     // must do the freeing after all the items are in the buffer (cannot do freeing during list traversal)
     int num_items = 0;
@@ -1046,27 +1046,30 @@ tid_t pthread_join(tid_t tid) {
   struct process* p = t->pcb;
 
   lock_acquire(&p->lock);
+  struct user_thread_item* found_item = NULL;
   for (struct list_elem* e = list_begin(&p->user_thread_list); e != list_end(&p->user_thread_list);
        e = list_next(e)) {
     struct user_thread_item* user_thread_item_here = list_entry(e, struct user_thread_item, elem);
-    lock_acquire(&user_thread_item_here->lock);
     if (user_thread_item_here->tid == tid) {
-      lock_release(&p->lock);
-
-      if (user_thread_item_here->waited_on) {
-        lock_release(&user_thread_item_here->lock);
-        return TID_ERROR;
-      }
-      user_thread_item_here->waited_on = true;
-      lock_release(&user_thread_item_here->lock);
-
-      sema_down(&user_thread_item_here->semaphore);
-      return tid;
+      found_item = user_thread_item_here;
+      break;
     }
-    lock_release(&user_thread_item_here->lock);
   }
   lock_release(&p->lock);
-  return TID_ERROR;
+
+  if (found_item == NULL) {
+    return TID_ERROR;
+  }
+  lock_acquire(&found_item->lock);
+  if (found_item->waited_on) {
+    lock_release(&found_item->lock);
+    return TID_ERROR;
+  }
+  found_item->waited_on = true;
+  lock_release(&found_item->lock);
+
+  sema_down(&found_item->semaphore);
+  return tid;
 }
 
 /* Free the current thread's resources. Most resources will
