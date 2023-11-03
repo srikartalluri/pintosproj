@@ -91,9 +91,11 @@ struct thread {
   struct list_elem allelem;  /* List element for all threads list. */
   struct lock timer;
   /* Shared between thread.c and synch.c. */
-  struct list_elem elem;    /* List element. */
-  struct list_elem sleepin; /*list elem for sleeping threads list*/
-  int64_t wu_time;          /*time tick at which thread needs to wake up*/
+  struct list_elem elem; /* List element. */
+  struct list_elem sleep_elem; /* List for sleeping element. */
+  int64_t wu_time;       /*time tick at which thread needs to wake up*/
+
+  struct user_thread_item* user_thread_item_ptr; // pointer to user_thread_item if there is a user thread item
 
 #ifdef USERPROG
   /* Owned by process.c. */

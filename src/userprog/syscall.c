@@ -98,16 +98,6 @@ void syscall_init(void) {
   intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
-// do a process exit under the assumption that all the arguments are valid
-void do_exit(int code) {
-  struct process_child_item* item = thread_current()->pcb->item_ptr;
-  lock_acquire(&item->lock);
-  item->exit_code = code;
-  lock_release(&item->lock);
-  printf("%s: exit(%d)\n", thread_current()->pcb->process_name, code);
-  process_exit();
-}
-
 /*handler for the create syscall*/
 static bool syscall_create(char* file_name, int num_bytes) {
   /*Start Arg Val*/
@@ -337,6 +327,16 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       2, // CLOSE
       2, // PRACTICE
       2, // COMPUTE_E
+      4, // SYS_PT_CREATE
+      1, // SYS_PT_EXIT,
+      2, // SYS_PT_JOIN,
+      2, // SYS_LOCK_INIT,
+      2, // SYS_LOCK_ACQUIRE,
+      2, // SYS_LOCK_RELEASE,
+      3, // SYS_SEMA_INIT,
+      2, // SYS_SEMA_DOWN,
+      2, // SYS_SEMA_UP,
+      1  // SYS_GET_TID,
   };
 
   for (int i = 0; i < num_args[args[0]]; i++) {
@@ -356,77 +356,105 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
   // printf("System call number: %d\n", args[0]);
 
-  if (args[0] == SYS_EXIT) {
-    do_exit(args[1]);
-  } else if (args[0] == SYS_PRACTICE) {
-    f->eax = args[1] + 1;
-  } else if (args[0] == SYS_HALT) {
-    shutdown_power_off();
-  } else if (args[0] == SYS_CREATE) {
-    if (is_bad_string(args[1])) {
-      do_exit(-1);
-    }
-    lock_acquire(&file_lock);
-    f->eax = syscall_create(args[1], args[2]);
-    lock_release(&file_lock);
-  } else if (args[0] == SYS_REMOVE) {
-    if (is_bad_string(args[1])) {
-      do_exit(-1);
-    }
-    lock_acquire(&file_lock);
-    f->eax = syscall_remove(args[1]);
-    lock_release(&file_lock);
-  } else if (args[0] == SYS_OPEN) {
-    if (is_bad_address(args[1])) {
-      do_exit(-1);
-    }
-    lock_acquire(&file_lock);
-    f->eax = syscall_open(args[1]);
-    lock_release(&file_lock);
-  } else if (args[0] == SYS_FILESIZE) {
-    lock_acquire(&file_lock);
-    f->eax = syscall_filesize(args[1]);
-    lock_release(&file_lock);
-  } else if (args[0] == SYS_READ) {
-    if (is_bad_string(args[2])) {
-      do_exit(-1);
-    }
-    lock_acquire(&file_lock);
-    f->eax = syscall_read(args[1], args[2], args[3]);
-    lock_release(&file_lock);
-  } else if (args[0] == SYS_WRITE) {
-    if (is_bad_string(args[2])) {
-      do_exit(-1);
-    }
-    lock_acquire(&file_lock);
-    f->eax = syscall_write(args[1], args[2], args[3]);
-    lock_release(&file_lock);
-  } else if (args[0] == SYS_SEEK) {
-    lock_acquire(&file_lock);
-    syscall_seek(args[1], args[2]);
-    lock_release(&file_lock);
-  } else if (args[0] == SYS_TELL) {
-    lock_acquire(&file_lock);
-    f->eax = syscall_tell(args[1]);
-    lock_release(&file_lock);
-  } else if (args[0] == SYS_CLOSE) {
-    lock_acquire(&file_lock);
-    syscall_close(args[1]);
-    lock_release(&file_lock);
-  } else if (args[0] == SYS_EXEC) {
-    char* executing_cmd = args[1];
-    // TODO: do argument validation
-    if (is_bad_string(executing_cmd)) {
-      do_exit(-1);
-    }
-    f->eax = process_execute(executing_cmd);
-  } else if (args[0] == SYS_WAIT) {
-    int child_pid = args[1];
-    // TODO: do argument validation
-    f->eax = process_wait(child_pid);
-  } else if (args[0] == SYS_HALT) {
-    shutdown_power_off();
-  } else if (args[0] == SYS_COMPUTE_E) {
-    f->eax = sys_sum_to_e(args[1]);
+  switch (args[0]) {
+    case SYS_EXIT:
+      do_exit(args[1]);
+      break;
+    case SYS_PRACTICE:
+      f->eax = args[1] + 1;
+      break;
+    case SYS_HALT:
+      shutdown_power_off();
+      break;
+    case SYS_CREATE:
+      if (is_bad_string(args[1])) {
+        do_exit(-1);
+      }
+      lock_acquire(&file_lock);
+      f->eax = syscall_create(args[1], args[2]);
+      lock_release(&file_lock);
+      break;
+    case SYS_REMOVE:
+      if (is_bad_string(args[1])) {
+        do_exit(-1);
+      }
+      lock_acquire(&file_lock);
+      f->eax = syscall_remove(args[1]);
+      lock_release(&file_lock);
+      break;
+    case SYS_OPEN:
+      if (is_bad_address(args[1])) {
+        do_exit(-1);
+      }
+      lock_acquire(&file_lock);
+      f->eax = syscall_open(args[1]);
+      lock_release(&file_lock);
+      break;
+    case SYS_FILESIZE:
+      lock_acquire(&file_lock);
+      f->eax = syscall_filesize(args[1]);
+      lock_release(&file_lock);
+      break;
+    case SYS_READ:
+      if (is_bad_string(args[2])) {
+        do_exit(-1);
+      }
+      lock_acquire(&file_lock);
+      f->eax = syscall_read(args[1], args[2], args[3]);
+      lock_release(&file_lock);
+      break;
+    case SYS_WRITE:
+      if (is_bad_string(args[2])) {
+        do_exit(-1);
+      }
+      lock_acquire(&file_lock);
+      f->eax = syscall_write(args[1], args[2], args[3]);
+      lock_release(&file_lock);
+      break;
+    case SYS_SEEK:
+      lock_acquire(&file_lock);
+      syscall_seek(args[1], args[2]);
+      lock_release(&file_lock);
+      break;
+    case SYS_TELL:
+      lock_acquire(&file_lock);
+      f->eax = syscall_tell(args[1]);
+      lock_release(&file_lock);
+      break;
+    case SYS_CLOSE:
+      lock_acquire(&file_lock);
+      syscall_close(args[1]);
+      lock_release(&file_lock);
+      break;
+    case SYS_EXEC:
+      char* executing_cmd = args[1];
+      if (is_bad_string(executing_cmd)) {
+        do_exit(-1);
+      }
+      f->eax = process_execute(executing_cmd);
+      break;
+    case SYS_WAIT:
+      int child_pid = args[1];
+      f->eax = process_wait(child_pid);
+      break;
+    case SYS_COMPUTE_E:
+      f->eax = sys_sum_to_e(args[1]);
+      break;
+    case SYS_PT_CREATE:
+      f->eax = pthread_execute(args[1], args[2], args[3]);
+      break;
+    case SYS_PT_EXIT:
+      if (is_main_thread(thread_current(), thread_current()->pcb)) {
+        pthread_exit_main();
+      } else {
+        pthread_exit();
+      }
+      break;
+    case SYS_PT_JOIN:
+      f->eax = pthread_join(args[1]);
+      break;
+    case SYS_GET_TID:
+      f->eax = thread_current()->tid;
+      break;
   }
 }

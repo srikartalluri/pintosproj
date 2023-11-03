@@ -115,6 +115,7 @@ void thread_init(void) {
   init_thread(initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid();
+  initial_thread->user_thread_item_ptr = NULL; 
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -447,6 +448,9 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   t->pcb = NULL;
   t->magic = THREAD_MAGIC;
 
+  // this will be initialized later in a syscall
+  t->user_thread_item_ptr = NULL;
+
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);
   intr_set_level(old_level);
@@ -473,8 +477,8 @@ static struct thread* thread_schedule_fifo(void) {
 /*function sorting list of threads for priority scheduling*/
 bool less_list(const struct list_elem* t1, const struct list_elem* t2, void* aux) {
   bool (*auxt)(struct thread*, struct thread*) = aux;
-  struct thread* T1 = list_entry(t1, struct thread, sleepin);
-  struct thread* T2 = list_entry(t2, struct thread, sleepin);
+  struct thread* T1 = list_entry(t1, struct thread, sleep_elem);
+  struct thread* T2 = list_entry(t2, struct thread, sleep_elem);
   return (*auxt)(T1, T2);
 }
 /*compare priority of threads*/
@@ -554,6 +558,13 @@ void thread_switch_tail(struct thread* prev) {
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) {
     ASSERT(prev != cur);
     palloc_free_page(prev);
+  }
+
+  /*
+    If the current thread needs to stop please stop the thread
+  */
+  if (cur->user_thread_item_ptr != NULL && cur->user_thread_item_ptr->needs_to_stop) {
+    pthread_exit();
   }
 }
 

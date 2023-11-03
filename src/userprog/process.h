@@ -36,6 +36,31 @@ struct process_child_item {
   struct list_elem elem;
 };
 
+// Item representing capabilties to support thread_join and so on
+struct user_thread_item {
+  struct lock lock;
+  struct semaphore semaphore;
+  bool waited_on;
+  bool needs_to_stop;
+  struct thread* thread_ptr;
+  struct list_elem elem;
+  tid_t tid;
+  uint8_t* kernel_page_to_free;
+  uint8_t* user_vaddr_to_free;
+};
+
+struct lock_item {
+  char* lock_ptr;
+  struct lock* kernel_lock;
+  struct list_elem elem;
+};
+
+struct semaphore_item {
+  char* sema_ptr;
+  struct semaphore* kernel_semaphore;
+  struct list_elem elem;
+};
+
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate
    PCB from the TCB. All TCBs in a process will have a pointer
@@ -48,9 +73,20 @@ struct process {
   struct thread* main_thread;          /* Pointer to main thread */
   struct list children_list;           /* list of children processes */
   struct process_child_item* item_ptr; /* pointer to list_item of parent */
+  struct list user_thread_list;         /* list of user threads (user join items) in the process*/
+
+  struct list user_lock_list; /* list of locks from user threads */
+  struct list user_sema_list; /* list of semaphores from user threads */
+
+  struct lock lock; /* potentially shared data of the pcb when multiple threads touch*/
+  struct lock exit_lock; /* Lock used so that new threads are not added during exit */
+  uint8_t* next_page_uaddr;
 };
 
 void userprog_init(void);
+
+// do a process exit (prints code and puts exit code on)
+void do_exit(int code);
 
 pid_t process_execute(const char* file_name);
 int process_wait(pid_t);

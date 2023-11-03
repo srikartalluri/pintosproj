@@ -27,6 +27,7 @@ typedef struct thread thread;
 
 /*list of sleeping threads*/
 struct list sleepy_boiz;
+struct lock sleep_lock;
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops(unsigned loops);
@@ -40,6 +41,7 @@ void timer_init(void) {
   pit_configure_channel(0, 2, TIMER_FREQ);
   intr_register_ext(0x20, timer_interrupt, "8254 Timer");
   list_init(&sleepy_boiz);
+  lock_init(&sleep_lock);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -88,8 +90,12 @@ void timer_sleep(int64_t ticks) {
   struct thread* t = thread_current();
   ASSERT(intr_get_level() == INTR_ON);
   t->wu_time = ticks + start;
-  list_push_back(&sleepy_boiz, &(t->sleepin));
+
+  lock_acquire(&sleep_lock);
+  list_push_back(&sleepy_boiz, &(t->sleep_elem));
   list_sort(&sleepy_boiz, less_list, prio_less);
+  lock_release(&sleep_lock);
+
   old_level = intr_disable();
   thread_block();
   intr_set_level(old_level);
@@ -145,13 +151,14 @@ static void timer_interrupt(struct intr_frame* args UNUSED) {
   struct list_elem* e;
 
   struct thread* t;
+
   e = list_begin(&sleepy_boiz);
 
   while (e != list_end(&sleepy_boiz)) {
-    t = list_entry(e, struct thread, sleepin);
+    t = list_entry(e, struct thread, sleep_elem);
     e = list_next(e);
     if (curr >= t->wu_time) {
-      list_remove(&(t->sleepin));
+      list_remove(&(t->sleep_elem));
 
       thread_unblock(t);
     }
