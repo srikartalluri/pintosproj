@@ -11,6 +11,8 @@
 #include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/gdt.h"
+#include "userprog/process.h"
+#include "userprog/usersync.h"
 #endif
 
 /* Programmable Interrupt Controller (PIC) registers.
@@ -333,6 +335,14 @@ void intr_handler(struct intr_frame* frame) {
     yield_on_return = false;
   }
 
+#ifdef USERPROG
+  struct thread* t = thread_current();
+  if (is_trap_from_userspace(frame) && t->user_thread_item_ptr != NULL &&
+      t->user_thread_item_ptr->needs_to_stop) {
+    pthread_exit();
+  }
+#endif
+
   /* Invoke the interrupt's handler. */
   handler = intr_handlers[frame->vec_no];
   if (handler != NULL)
@@ -346,8 +356,6 @@ void intr_handler(struct intr_frame* frame) {
 
   /* Complete the processing of an external interrupt. */
   if (external) {
-    ASSERT(intr_get_level() == INTR_OFF);
-    ASSERT(intr_context());
 
     in_external_intr = false;
     pic_end_of_interrupt(frame->vec_no);

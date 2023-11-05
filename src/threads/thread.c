@@ -115,7 +115,7 @@ void thread_init(void) {
   init_thread(initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid();
-  initial_thread->user_thread_item_ptr = NULL; 
+  initial_thread->user_thread_item_ptr = NULL;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -558,13 +558,6 @@ void thread_switch_tail(struct thread* prev) {
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) {
     ASSERT(prev != cur);
     palloc_free_page(prev);
-  }
-
-  /*
-    If the current thread needs to stop please stop the thread
-  */
-  if (cur->user_thread_item_ptr != NULL && cur->user_thread_item_ptr->needs_to_stop) {
-    pthread_exit();
   }
 }
 
