@@ -16,7 +16,7 @@ struct semaphore_item {
   int sema_id;
 };
 
-void usersync_init();
+void usersync_init(void);
 bool sys_lock_init(char* ptr);
 void sys_lock_acquire(char* ptr);
 void sys_lock_release(char* ptr);

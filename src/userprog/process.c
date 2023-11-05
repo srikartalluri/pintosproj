@@ -388,8 +388,9 @@ void process_exit(void) {
 
   /* free the pcb */
   struct process* pcb_to_free = cur->pcb;
-  { // free the malloced process_child_items
-    struct process_child_item* child_items_buffer[list_size(&pcb_to_free->children_list)];
+  if (!list_empty(&pcb_to_free->children_list)) { // free the malloced process_child_items
+    struct process_child_item** child_items_buffer =
+        malloc(list_size(&pcb_to_free->children_list) * sizeof(struct process_child_item*));
     // must do the freeing after all the items are in the buffer (cannot do freeing during list traversal)
     int num_items = 0;
     for (struct list_elem* e = list_begin(&pcb_to_free->children_list);
@@ -401,10 +402,12 @@ void process_exit(void) {
     for (int i = 0; i < num_items; i++) {
       remove_child_reference(child_items_buffer[i]);
     }
+    free(child_items_buffer);
   }
 
-  { // free the malloced user_thread_items
-    struct user_thread_item* thread_items_buffer[list_size(&pcb_to_free->user_thread_list)];
+  if (!list_empty(&pcb_to_free->user_thread_list)) { // free the malloced user_thread_items
+    struct user_thread_item** thread_items_buffer =
+        malloc(list_size(&pcb_to_free->user_thread_list) * sizeof(struct user_thread_item*));
     // must do the freeing after all the items are in the buffer (cannot do freeing during list traversal)
     int num_items = 0;
     for (struct list_elem* e = list_begin(&pcb_to_free->user_thread_list);
@@ -416,10 +419,12 @@ void process_exit(void) {
     for (int i = 0; i < num_items; i++) {
       free(thread_items_buffer[i]);
     }
+    free(thread_items_buffer);
   }
 
-  { // free the malloced lock item items
-    struct lock_item* lock_items_buffer[list_size(&pcb_to_free->user_lock_list)];
+  if (!list_empty(&pcb_to_free->user_lock_list)) { // free the malloced lock item items
+    struct lock_item** lock_items_buffer =
+        malloc(list_size(&pcb_to_free->user_lock_list) * sizeof(struct lock_item*));
     // must do the freeing after all the items are in the buffer (cannot do freeing during list traversal)
     int num_items = 0;
     for (struct list_elem* e = list_begin(&pcb_to_free->user_lock_list);
@@ -431,10 +436,13 @@ void process_exit(void) {
     for (int i = 0; i < num_items; i++) {
       free(lock_items_buffer[i]);
     }
+    free(lock_items_buffer);
   }
 
-  { // free the malloced sema item items
-    struct semaphore_item* semaphore_items_buffer[list_size(&pcb_to_free->user_sema_list)];
+  if (!list_empty(&pcb_to_free->user_sema_list)) { // free the malloced sema item items
+    struct semaphore_item** semaphore_items_buffer =
+        malloc(list_size(&pcb_to_free->user_sema_list) * sizeof(struct sema_item*));
+    ;
     // must do the freeing after all the items are in the buffer (cannot do freeing during list traversal)
     int num_items = 0;
     for (struct list_elem* e = list_begin(&pcb_to_free->user_sema_list);
@@ -446,6 +454,7 @@ void process_exit(void) {
     for (int i = 0; i < num_items; i++) {
       free(semaphore_items_buffer[i]);
     }
+    free(semaphore_items_buffer);
   }
 
   struct process_child_item* item = cur->pcb->item_ptr;
@@ -817,7 +826,7 @@ bool setup_thread(void** esp, void** kpage_set, void** uvaddr_set) {
   bool success = false;
   struct thread* t = thread_current();
 
-  // all MAX_CHILD_ITEMSpallocs in project threads should palloc from the kernel pool?
+  // all pallocs in project threads should palloc from the kernel pool?
   // https://cs162.org/static/proj/pintos-docs/docs/memory-alloc/page-allocator/
   uint8_t* kpage = palloc_get_page(PAL_ZERO | PAL_USER);
   if (kpage != NULL) {
