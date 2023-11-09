@@ -87,7 +87,7 @@ bool is_main_thread(struct thread*, struct process*);
 pid_t get_pid(struct process*);
 
 tid_t pthread_execute(stub_fun, pthread_fun, void*);
-tid_t pthread_join(tid_t);
+tid_t pthread_join(tid_t, bool);
 void pthread_exit(void);
 void pthread_exit_main(void);
 

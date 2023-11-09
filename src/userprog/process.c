@@ -380,7 +380,7 @@ void process_exit(void) {
     lock_release(&user_thread_item_here->lock);
     if (user_thread_item_here->tid != cur->tid) {
       lock_release(&p->exit_lock);
-      tid_t ret = pthread_join(user_thread_item_here->tid);
+      tid_t ret = pthread_join(user_thread_item_here->tid, false);
       lock_acquire(&p->exit_lock);
     }
   }
@@ -1050,7 +1050,7 @@ static void start_pthread(void* exec_) {
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-tid_t pthread_join(tid_t tid) {
+tid_t pthread_join(tid_t tid, bool remove_upon_finishing) {
   struct thread* t = thread_current();
   struct process* p = t->pcb;
 
@@ -1079,8 +1079,10 @@ tid_t pthread_join(tid_t tid) {
 
   sema_down(&found_item->semaphore);
 
-  { // free and remove this item
+  if (remove_upon_finishing) { // free and remove ehis item
+    lock_acquire(&p->exit_lock);
     list_remove(&found_item->elem);
+    lock_release(&p->exit_lock);
     free(found_item);
   }
 
@@ -1132,7 +1134,7 @@ void pthread_exit_main(void) {
     struct user_thread_item* user_thread_item_here = list_entry(e, struct user_thread_item, elem);
     if (user_thread_item_here->tid != t->tid) {
       lock_release(&p->exit_lock);
-      tid_t ret = pthread_join(user_thread_item_here->tid);
+      tid_t ret = pthread_join(user_thread_item_here->tid, false);
       lock_acquire(&p->exit_lock);
     }
   }

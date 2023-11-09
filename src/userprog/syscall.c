@@ -453,7 +453,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       }
       break;
     case SYS_PT_JOIN:
-      f->eax = pthread_join(args[1]);
+      f->eax = pthread_join(args[1], true);
       break;
     case SYS_LOCK_INIT:
       f->eax = sys_lock_init(args[1]);
