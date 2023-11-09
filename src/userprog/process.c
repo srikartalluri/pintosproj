@@ -1078,6 +1078,12 @@ tid_t pthread_join(tid_t tid) {
   lock_release(&found_item->lock);
 
   sema_down(&found_item->semaphore);
+
+  { // free and remove this item
+    list_remove(&found_item->elem);
+    free(found_item);
+  }
+
   return tid;
 }
 
