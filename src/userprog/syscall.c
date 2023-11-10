@@ -73,7 +73,6 @@ static void print_file_list() {
 /*Gets next fd to assign the next opened file*/
 int get_next_fd() {
   fdCounter += 1;
-  // printf("cur fd counter is %d\n", fdCounter);
   return fdCounter;
 }
 
@@ -90,7 +89,6 @@ void syscall_init(void) {
 
   // init the file system used for maintain files across all processes (i think)
   // On second thought, stuff works without it so? maybe don't need
-  // filesys_init(false);
 
   //init the file list
   file_list = malloc(sizeof(struct list));
@@ -176,8 +174,6 @@ static int syscall_open(char* file_name) {
   strlcpy(new_file_node->name, file_name, sizeof(new_file_node->name));
 
   list_push_back(file_list, &(new_file_node->elem));
-
-  // print_file_list();
 
   return new_fd;
 }
@@ -355,8 +351,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
    * when debugging. It will cause tests to fail, however, so you should not
    * include it in your final submission.
    */
-
-  // printf("System call number: %d\n", args[0]);
 
   switch (args[0]) {
     case SYS_EXIT:

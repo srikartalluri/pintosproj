@@ -35,10 +35,12 @@ tests/userprog/multithreading_TESTS += tests/userprog/multithreading/exit-clean-
 tests/userprog/multithreading_TESTS += tests/userprog/multithreading/exit-clean-2
 tests/userprog/multithreading_TESTS += tests/userprog/multithreading/multi-oom-mt
 tests/userprog/multithreading_TESTS += tests/userprog/multithreading/pcb-syn
+tests/userprog/multithreading_TESTS = tests/userprog/multithreading/join-dif-proc
 
 tests/userprog/multithreading_PROGS = $(tests/userprog/multithreading_TESTS) $(addprefix \
 tests/userprog/multithreading/,child-simple)
 
+tests/userprog/multithreading/join-dif-proc_SRC = tests/userprog/multithreading/join-dif-proc.c
 tests/userprog/multithreading/lock-simple_SRC = tests/userprog/multithreading/lock-simple.c
 tests/userprog/multithreading/lock-init-fail_SRC = tests/userprog/multithreading/lock-init-fail.c
 tests/userprog/multithreading/lock-dbl-acq_SRC = tests/userprog/multithreading/lock-dbl-acq.c
@@ -74,6 +76,7 @@ tests/userprog/multithreading/pcb-syn_SRC = tests/userprog/multithreading/pcb-sy
 
 $(foreach prog,$(tests/userprog/multithreading_PROGS),$(eval $(prog)_SRC += tests/lib.c tests/main.c))
 
+tests/userprog/multithreading/join-dif-proc_ARGS = root
 tests/userprog/multithreading/exec-thread-1_ARGS = thread
 tests/userprog/multithreading/exec-thread-n_ARGS = root
 tests/userprog/multithreading/exit-clean-1_ARGS = root exit 1
@@ -93,3 +96,4 @@ tests/userprog/multithreading/exec-thread-1_SRC := $(filter-out tests/main.c,$(t
 tests/userprog/multithreading/exec-thread-n_SRC := $(filter-out tests/main.c,$(tests/userprog/multithreading/exec-thread-n_SRC))
 tests/userprog/multithreading/exit-clean-1_SRC := $(filter-out tests/main.c,$(tests/userprog/multithreading/exit-clean-1_SRC))
 tests/userprog/multithreading/exit-clean-2_SRC := $(filter-out tests/main.c,$(tests/userprog/multithreading/exit-clean-2_SRC))
+tests/userprog/multithreading/join-dif-proc_SRC := $(filter-out tests/main.c,$(tests/userprog/multithreading/join-dif-proc_SRC))

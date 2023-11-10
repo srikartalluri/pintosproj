@@ -5,7 +5,7 @@ tests/%.output: PUTFILES = $(filter-out kernel.bin loader.bin, $^)
 
 
 tests/userprog_TESTS = $(addprefix tests/userprog/,do-nothing           \
-stack-align-0 args-none args-single args-multiple args-many             \
+stack-align-0 args-none args-single args-multiple args-many user-new             \
 args-dbl-space sc-bad-sp sc-bad-arg sc-boundary sc-boundary-2           \
 sc-boundary-3 halt exit create-normal create-empty create-null          \
 create-bad-ptr create-long create-exists create-bound open-normal       \
@@ -28,6 +28,7 @@ child-rox compute-e fp-asm-helper)
 tests/userprog/iloveos_SRC = tests/userprog/iloveos.c tests/main.c
 tests/userprog/practice_SRC = tests/userprog/practice.c tests/main.c
 tests/userprog/do-nothing_SRC = tests/userprog/do-nothing.c
+tests/userprog/user-new_SRC = tests/userprog/user-new.c
 tests/userprog/stack-align-0_SRC = tests/userprog/stack-align-0.c
 tests/userprog/stack-align-1_SRC = tests/userprog/stack-align.c
 tests/userprog/stack-align-2_SRC = tests/userprog/stack-align.c
