@@ -33,9 +33,9 @@ struct user_thread_item* create_user_thread_item(struct thread* t, uint8_t* kpag
 // do a process exit under the assumption that all the arguments are valid
 void do_exit(int code) {
   struct process_child_item* item = thread_current()->pcb->item_ptr;
-  lock_acquire(&item->lock);
+  old_lock_acquire(&item->lock);
   item->exit_code = code;
-  lock_release(&item->lock);
+  old_lock_release(&item->lock);
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, code);
   process_exit();
 }
@@ -62,6 +62,7 @@ void userprog_init(void) {
   list_init(&t->pcb->user_sema_list);
   t->pcb->item_ptr = NULL;
   t->pcb->next_page_uaddr = PHYS_BASE - 2 * PGSIZE;
+  t->pcb->num_user_stacks_allocated = 0;
 
   struct user_thread_item* main_user_thread_item = create_user_thread_item(t, NULL, NULL);
   list_push_back(&t->pcb->user_thread_list, &main_user_thread_item->elem);
@@ -76,16 +77,16 @@ void userprog_init(void) {
 
 // free the file name
 void remove_child_reference(struct process_child_item* c) {
-  lock_acquire(&c->lock);
+  old_lock_acquire(&c->lock);
   c->ref_cnt--;
 
   if (c->ref_cnt == 0) {
-    lock_release(&c->lock);
+    old_lock_release(&c->lock);
     free(c->file_name);
     free(c);
     return;
   }
-  lock_release(&c->lock);
+  old_lock_release(&c->lock);
   return;
 }
 
@@ -119,12 +120,12 @@ pid_t process_execute(const char* file_name) {
   tid = thread_create(file_name, PRI_DEFAULT, start_process, process_child);
 
   // try to down the semaphore (will be upped by when load executable finishes)
-  sema_down(&process_child->semaphore);
+  old_sema_down(&process_child->semaphore);
 
   bool successful_load = true;
-  lock_acquire(&process_child->lock);
+  old_lock_acquire(&process_child->lock);
   successful_load = process_child->successful_load;
-  lock_release(&process_child->lock);
+  old_lock_release(&process_child->lock);
 
   if (tid == TID_ERROR || !successful_load) {
     remove_child_reference(process_child);
@@ -141,9 +142,9 @@ pid_t process_execute(const char* file_name) {
 static void start_process(void* process_item_) {
   struct process_child_item* process_item = (struct process_child_item*)process_item_;
 
-  lock_acquire(&process_item->lock);
+  old_lock_acquire(&process_item->lock);
   process_item->ref_cnt++;
-  lock_release(&process_item->lock);
+  old_lock_release(&process_item->lock);
 
   char* file_name = process_item->file_name;
   struct thread* t = thread_current();
@@ -180,10 +181,11 @@ static void start_process(void* process_item_) {
     strlcpy(t->pcb->process_name, initial_token, sizeof t->name);
     t->pcb->item_ptr = process_item;
     t->pcb->next_page_uaddr = PHYS_BASE - 2 * PGSIZE;
+    t->pcb->num_user_stacks_allocated = 0;
 
-    lock_acquire(&process_item->lock);
+    old_lock_acquire(&process_item->lock);
     process_item->pid = get_pid(t->pcb);
-    lock_release(&process_item->lock);
+    old_lock_release(&process_item->lock);
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -207,11 +209,11 @@ static void start_process(void* process_item_) {
     // file_name in this case includes arguments
     success = load(initial_token, &if_.eip, &if_.esp);
     if (!success) {
-      lock_acquire(&process_item->lock);
+      old_lock_acquire(&process_item->lock);
       process_item->successful_load = false;
-      lock_release(&process_item->lock);
+      old_lock_release(&process_item->lock);
     }
-    sema_up(&process_item->semaphore);
+    old_sema_up(&process_item->semaphore);
 
     // now that it's loaded, we don't need to stop the parent from doing aynthing so we can remove our reference to the parent
   }
@@ -229,8 +231,8 @@ static void start_process(void* process_item_) {
   /* Clean up. Exit on failure or jump to userspace */
   // Not a successful load
   if (!success) {
-    // sema_up(&temporary);
-    sema_up(&process_item->semaphore);
+    // old_sema_up(&temporary);
+    old_sema_up(&process_item->semaphore);
     remove_child_reference(process_item);
     thread_exit();
   }
@@ -317,7 +319,7 @@ static void start_process(void* process_item_) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid) {
-  // sema_down(&temporary);
+  // old_sema_down(&temporary);
   struct thread* t = thread_current();
 
   /*
@@ -336,20 +338,20 @@ int process_wait(pid_t child_pid) {
       found_child = true;
 
       bool already_waited = false;
-      lock_acquire(&item->lock);
+      old_lock_acquire(&item->lock);
       if (item->waited)
         already_waited = true;
-      lock_release(&item->lock);
+      old_lock_release(&item->lock);
 
       if (already_waited)
         return -1;
 
-      sema_down(&item->semaphore);
+      old_sema_down(&item->semaphore);
       int ret_value = -1;
-      lock_acquire(&item->lock);
+      old_lock_acquire(&item->lock);
       ret_value = item->exit_code;
       item->waited = true;
-      lock_release(&item->lock);
+      old_lock_release(&item->lock);
       return ret_value;
     }
   }
@@ -371,20 +373,20 @@ void process_exit(void) {
   int pid = get_pid(cur->pcb);
   struct process* p = cur->pcb;
 
-  lock_acquire(&p->exit_lock);
+  old_lock_acquire(&p->exit_lock);
   for (struct list_elem* e = list_begin(&p->user_thread_list); e != list_end(&p->user_thread_list);
        e = list_next(e)) {
     struct user_thread_item* user_thread_item_here = list_entry(e, struct user_thread_item, elem);
-    lock_acquire(&user_thread_item_here->lock);
+    old_lock_acquire(&user_thread_item_here->lock);
     user_thread_item_here->needs_to_stop = true;
-    lock_release(&user_thread_item_here->lock);
+    old_lock_release(&user_thread_item_here->lock);
     if (user_thread_item_here->tid != cur->tid) {
-      lock_release(&p->exit_lock);
+      old_lock_release(&p->exit_lock);
       tid_t ret = pthread_join(user_thread_item_here->tid, false);
-      lock_acquire(&p->exit_lock);
+      old_lock_acquire(&p->exit_lock);
     }
   }
-  lock_release(&p->exit_lock);
+  old_lock_release(&p->exit_lock);
 
   /* free the pcb */
   struct process* pcb_to_free = cur->pcb;
@@ -482,10 +484,10 @@ void process_exit(void) {
   cur->pcb = NULL;
   free(pcb_to_free);
 
-  // sema_up(&temporary);
-  lock_acquire(&item->lock);
-  sema_up(&item->semaphore);
-  lock_release(&item->lock);
+  // old_sema_up(&temporary);
+  old_lock_acquire(&item->lock);
+  old_sema_up(&item->semaphore);
+  old_lock_release(&item->lock);
   remove_child_reference(item);
   free_file_descriptors_for_process(pid);
   thread_exit();
@@ -830,17 +832,18 @@ bool setup_thread(void** esp, void** kpage_set, void** uvaddr_set) {
   // https://cs162.org/static/proj/pintos-docs/docs/memory-alloc/page-allocator/
   uint8_t* kpage = palloc_get_page(PAL_ZERO | PAL_USER);
   if (kpage != NULL) {
-    lock_acquire(&t->pcb->lock);
+    old_lock_acquire(&t->pcb->lock);
     success = install_page(t->pcb->next_page_uaddr - PGSIZE, kpage, true);
     if (success) {
       *esp = t->pcb->next_page_uaddr;
       *kpage_set = kpage;
       *uvaddr_set = t->pcb->next_page_uaddr - PGSIZE;
       t->pcb->next_page_uaddr -= PGSIZE;
+      t->pcb->num_user_stacks_allocated++;
     } else {
       palloc_free_page(kpage);
     }
-    lock_release(&t->pcb->lock);
+    old_lock_release(&t->pcb->lock);
   }
 
   // Must activate the process for thread to have pagedir in process context
@@ -862,15 +865,15 @@ struct thread_child_item {
 };
 
 void remove_thread_reference(struct thread_child_item* c) {
-  lock_acquire(&c->lock);
+  old_lock_acquire(&c->lock);
   c->ref_cnt--;
 
   if (c->ref_cnt == 0) {
-    lock_release(&c->lock);
+    old_lock_release(&c->lock);
     free(c);
     return;
   }
-  lock_release(&c->lock);
+  old_lock_release(&c->lock);
   return;
 }
 
@@ -907,20 +910,20 @@ tid_t pthread_execute(stub_fun sf, pthread_fun tf, void* arg) {
 
   /* Create a new thread to execute FILE_NAME. */
   char buffer[69];
-  lock_acquire(&pcb->lock);
+  old_lock_acquire(&pcb->lock);
   size_t thread_list_length = list_size(&pcb->user_thread_list);
-  lock_release(&pcb->lock);
+  old_lock_release(&pcb->lock);
   snprintf(buffer, 69, "%s | %d", thread_child->calling_pcb->process_name, thread_list_length);
   tid = thread_create(buffer, PRI_DEFAULT, start_pthread, thread_child);
 
   // try to down the semaphore (will be upped by when load executable finishes)
-  sema_down(&thread_child->startup_semaphore);
+  old_sema_down(&thread_child->startup_semaphore);
 
   bool succesful_start = true;
 
-  lock_acquire(&thread_child->lock);
+  old_lock_acquire(&thread_child->lock);
   succesful_start = thread_child->succesful_start;
-  lock_release(&thread_child->lock);
+  old_lock_release(&thread_child->lock);
 
   remove_thread_reference(thread_child);
   if (tid == TID_ERROR || !succesful_start) {
@@ -955,9 +958,9 @@ struct user_thread_item* create_user_thread_item(struct thread* t, uint8_t* kpag
 static void start_pthread(void* exec_) {
   struct thread_child_item* thread_item = (struct thread_child_item*)exec_;
 
-  lock_acquire(&thread_item->lock);
+  old_lock_acquire(&thread_item->lock);
   thread_item->ref_cnt++;
-  lock_release(&thread_item->lock);
+  old_lock_release(&thread_item->lock);
 
   struct thread* t = thread_current();
   struct intr_frame if_;
@@ -989,9 +992,9 @@ static void start_pthread(void* exec_) {
     if_.eip = thread_item->sf;
     success = setup_thread(&if_.esp, &kpage_set, &uvaddr_set);
     if (!success) {
-      lock_acquire(&thread_item->lock);
+      old_lock_acquire(&thread_item->lock);
       thread_item->succesful_start = false;
-      lock_release(&thread_item->lock);
+      old_lock_release(&thread_item->lock);
     }
 
     // now that it's loaded, we don't need to stop the parent from doing aynthing so we can remove our reference to the parent
@@ -1004,21 +1007,21 @@ static void start_pthread(void* exec_) {
     thread_exit();
   }
 
-  lock_acquire(&pcb->lock);
+  old_lock_acquire(&pcb->lock);
   struct user_thread_item* c = create_user_thread_item(t, kpage_set, uvaddr_set);
   list_push_back(&pcb->user_thread_list, &c->elem);
   t->user_thread_item_ptr = c;
-  lock_release(&pcb->lock);
+  old_lock_release(&pcb->lock);
 
   /* Setup the userarguments to be above the stack ptr */
 
   // Open ended right bound at the top of the stack
-  lock_acquire(&pcb->lock);
+  old_lock_acquire(&pcb->lock);
   void* nxt_ptr = pcb->next_page_uaddr + PGSIZE;
-  lock_release(&pcb->lock);
+  old_lock_release(&pcb->lock);
 
   // after the thread item has been created is when u can wiggle
-  sema_up(&thread_item->startup_semaphore);
+  old_sema_up(&thread_item->startup_semaphore);
   // make room for arguments
   if_.esp = nxt_ptr - 12;
 
@@ -1029,6 +1032,8 @@ static void start_pthread(void* exec_) {
 
   uint32_t** address_fun = pagedir_get_page(t->pcb->pagedir, if_.esp + 4);
   uint32_t** address_arg = pagedir_get_page(t->pcb->pagedir, if_.esp + 8);
+
+  ASSERT(address_fun != NULL);
   *address_fun = thread_item->tf;
   *address_arg = thread_item->arg;
 
@@ -1054,7 +1059,7 @@ tid_t pthread_join(tid_t tid, bool remove_upon_finishing) {
   struct thread* t = thread_current();
   struct process* p = t->pcb;
 
-  lock_acquire(&p->lock);
+  old_lock_acquire(&p->lock);
   struct user_thread_item* found_item = NULL;
   for (struct list_elem* e = list_begin(&p->user_thread_list); e != list_end(&p->user_thread_list);
        e = list_next(e)) {
@@ -1064,25 +1069,25 @@ tid_t pthread_join(tid_t tid, bool remove_upon_finishing) {
       break;
     }
   }
-  lock_release(&p->lock);
+  old_lock_release(&p->lock);
 
   if (found_item == NULL) {
     return TID_ERROR;
   }
-  lock_acquire(&found_item->lock);
+  old_lock_acquire(&found_item->lock);
   if (found_item->waited_on) {
-    lock_release(&found_item->lock);
+    old_lock_release(&found_item->lock);
     return TID_ERROR;
   }
   found_item->waited_on = true;
-  lock_release(&found_item->lock);
+  old_lock_release(&found_item->lock);
 
-  sema_down(&found_item->semaphore);
+  old_sema_down(&found_item->semaphore);
 
   if (remove_upon_finishing) { // free and remove ehis item
-    lock_acquire(&p->exit_lock);
+    old_lock_acquire(&p->exit_lock);
     list_remove(&found_item->elem);
-    lock_release(&p->exit_lock);
+    old_lock_release(&p->exit_lock);
     free(found_item);
   }
 
@@ -1106,7 +1111,7 @@ void pthread_exit(void) {
   pagedir_clear_page(t->pcb->pagedir, user_thread->user_vaddr_to_free);
   palloc_free_page(user_thread->kernel_page_to_free);
 
-  sema_up(&user_thread->semaphore);
+  old_sema_up(&user_thread->semaphore);
   thread_exit();
   NOT_REACHED();
 }
@@ -1125,19 +1130,19 @@ void pthread_exit_main(void) {
   struct user_thread_item* user_thread = t->user_thread_item_ptr;
 
   if (user_thread != NULL) {
-    sema_up(&user_thread->semaphore);
+    old_sema_up(&user_thread->semaphore);
   }
 
-  lock_acquire(&p->exit_lock);
+  old_lock_acquire(&p->exit_lock);
   for (struct list_elem* e = list_begin(&p->user_thread_list); e != list_end(&p->user_thread_list);
        e = list_next(e)) {
     struct user_thread_item* user_thread_item_here = list_entry(e, struct user_thread_item, elem);
     if (user_thread_item_here->tid != t->tid) {
-      lock_release(&p->exit_lock);
+      old_lock_release(&p->exit_lock);
       tid_t ret = pthread_join(user_thread_item_here->tid, false);
-      lock_acquire(&p->exit_lock);
+      old_lock_acquire(&p->exit_lock);
     }
   }
-  lock_release(&p->exit_lock);
+  old_lock_release(&p->exit_lock);
   do_exit(0);
 }

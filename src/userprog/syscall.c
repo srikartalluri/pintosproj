@@ -366,61 +366,61 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       if (is_bad_string(args[1])) {
         do_exit(-1);
       }
-      lock_acquire(&file_lock);
+      old_lock_acquire(&file_lock);
       f->eax = syscall_create(args[1], args[2]);
-      lock_release(&file_lock);
+      old_lock_release(&file_lock);
       break;
     case SYS_REMOVE:
       if (is_bad_string(args[1])) {
         do_exit(-1);
       }
-      lock_acquire(&file_lock);
+      old_lock_acquire(&file_lock);
       f->eax = syscall_remove(args[1]);
-      lock_release(&file_lock);
+      old_lock_release(&file_lock);
       break;
     case SYS_OPEN:
       if (is_bad_address(args[1])) {
         do_exit(-1);
       }
-      lock_acquire(&file_lock);
+      old_lock_acquire(&file_lock);
       f->eax = syscall_open(args[1]);
-      lock_release(&file_lock);
+      old_lock_release(&file_lock);
       break;
     case SYS_FILESIZE:
-      lock_acquire(&file_lock);
+      old_lock_acquire(&file_lock);
       f->eax = syscall_filesize(args[1]);
-      lock_release(&file_lock);
+      old_lock_release(&file_lock);
       break;
     case SYS_READ:
       if (is_bad_string(args[2])) {
         do_exit(-1);
       }
-      lock_acquire(&file_lock);
+      old_lock_acquire(&file_lock);
       f->eax = syscall_read(args[1], args[2], args[3]);
-      lock_release(&file_lock);
+      old_lock_release(&file_lock);
       break;
     case SYS_WRITE:
       if (is_bad_string(args[2])) {
         do_exit(-1);
       }
-      lock_acquire(&file_lock);
+      old_lock_acquire(&file_lock);
       f->eax = syscall_write(args[1], args[2], args[3]);
-      lock_release(&file_lock);
+      old_lock_release(&file_lock);
       break;
     case SYS_SEEK:
-      lock_acquire(&file_lock);
+      old_lock_acquire(&file_lock);
       syscall_seek(args[1], args[2]);
-      lock_release(&file_lock);
+      old_lock_release(&file_lock);
       break;
     case SYS_TELL:
-      lock_acquire(&file_lock);
+      old_lock_acquire(&file_lock);
       f->eax = syscall_tell(args[1]);
-      lock_release(&file_lock);
+      old_lock_release(&file_lock);
       break;
     case SYS_CLOSE:
-      lock_acquire(&file_lock);
+      old_lock_acquire(&file_lock);
       syscall_close(args[1]);
-      lock_release(&file_lock);
+      old_lock_release(&file_lock);
       break;
     case SYS_EXEC:
       char* executing_cmd = args[1];

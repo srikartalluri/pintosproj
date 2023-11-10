@@ -35,7 +35,7 @@ int main(int argc, char* argv[]) {
 
 
     fail("reached unreachable statement");
-    
+
 
 
   }
@@ -43,7 +43,7 @@ int main(int argc, char* argv[]) {
   if (!strcmp(argv[1], "child")){
 
     msg("Printed from child process");
-    
+
 
 
   }
