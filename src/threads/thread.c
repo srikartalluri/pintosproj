@@ -24,9 +24,13 @@
    that are ready to run but not actually running. */
 static struct list fifo_ready_list;
 
+/*array of lists for prio scheduler. One list for each prio from 0 to 63*/
+static struct list prio_ready_list[64];
+
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
+
 
 /* Idle thread. */
 static struct thread* idle_thread;
@@ -108,6 +112,9 @@ void thread_init(void) {
 
   lock_init(&tid_lock);
   list_init(&fifo_ready_list);
+  for (int i = 0; i < 64; i++) {
+    list_init(&prio_ready_list[i]);
+  }
   list_init(&all_list);
 
   /* Set up a thread structure for the running thread. */
@@ -149,7 +156,7 @@ void thread_tick(void) {
     kernel_ticks++;
 
   /* Enforce preemption. */
-  if (++thread_ticks >= TIME_SLICE)
+  if (++thread_ticks >= TIME_SLICE )
     intr_yield_on_return();
 }
 
@@ -218,7 +225,8 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   }
   /* Add to run queue. */
   thread_unblock(t);
-
+  if (t->priority >= thread_current()->priority)
+    thread_yield();
   return tid;
 }
 
@@ -249,7 +257,7 @@ static void thread_enqueue(struct thread* t) {
       list_push_back(&fifo_ready_list, &t->elem);
       break;
     case SCHED_PRIO:
-      list_push_back(&fifo_ready_list, &t->elem);
+      list_push_back(&prio_ready_list[t->priority], &t->elem);
       break;
     default:
       PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
@@ -267,7 +275,6 @@ static void thread_enqueue(struct thread* t) {
    update other data. */
 void thread_unblock(struct thread* t) {
   enum intr_level old_level;
-
   ASSERT(is_thread(t));
 
   old_level = intr_disable();
@@ -284,6 +291,7 @@ const char* thread_name(void) { return thread_current()->name; }
    This is running_thread() plus a couple of sanity checks.
    See the big comment at the top of thread.h for details. */
 struct thread* thread_current(void) {
+  
   struct thread* t = running_thread();
 
   /* Make sure T is really a thread.
@@ -308,10 +316,13 @@ void thread_exit(void) {
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_switch_tail(). */
+    
   intr_disable();
   list_remove(&thread_current()->allelem);
   thread_current()->status = THREAD_DYING;
+    
   schedule();
+
   NOT_REACHED();
 }
 
@@ -342,10 +353,45 @@ void thread_foreach(thread_action_func* func, void* aux) {
     struct thread* t = list_entry(e, struct thread, allelem);
     func(t, aux);
   }
+
+}
+
+/*helper function for setprio and prio-dono*/
+void set_prio_helper(int new_priority, struct thread* t){
+  struct thread* tc = thread_current();
+  if(t != tc) list_remove(&t->elem);
+  
+  struct list_elem* e;
+  struct lock* l;
+  int max = 0;
+  if(!list_empty(&t->locks)){
+    for(e = list_begin(&t->locks); e!= list_end(&t->locks);e = list_next(e)){
+      l = list_entry(e,struct lock, elem);
+      l->highest_priorty = l->highest_priorty > new_priority ? l->highest_priorty : new_priority;
+      max = l->highest_priorty > max ? l->highest_priorty : max;
+    }
+    t->priority = max > new_priority ? max : new_priority;
+  } else {
+    t->priority = new_priority;
+  }
+  if(t->waiting_lock){
+    t->waiting_lock->highest_priorty = t->waiting_lock->highest_priorty > new_priority ? t->waiting_lock->highest_priorty : new_priority;
+  }
+  
+  if(t != tc){ thread_enqueue(t);t->status = THREAD_READY;}
+ 
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void thread_set_priority(int new_priority) { thread_current()->priority = new_priority; }
+void thread_set_priority(int new_priority) {
+  enum intr_level old_lvl = intr_disable();
+  struct thread* t = thread_current();
+  t->og_prio = new_priority;
+  //list_remove(&t->elem);
+  set_prio_helper(new_priority,thread_current());
+  intr_set_level(old_lvl);
+  thread_yield();
+}
 
 /* Returns the current thread's priority. */
 int thread_get_priority(void) { return thread_current()->priority; }
@@ -445,8 +491,11 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   strlcpy(t->name, name, sizeof t->name);
   t->stack = (uint8_t*)t + PGSIZE;
   t->priority = priority;
+  t->og_prio = priority;
   t->pcb = NULL;
   t->magic = THREAD_MAGIC;
+  list_init(&t->locks);
+  t->waiting_lock = NULL;
 
   // this will be initialized later in a syscall
   t->user_thread_item_ptr = NULL;
@@ -477,20 +526,20 @@ static struct thread* thread_schedule_fifo(void) {
 /*function sorting list of threads for priority scheduling*/
 bool less_list(const struct list_elem* t1, const struct list_elem* t2, void* aux) {
   bool (*auxt)(struct thread*, struct thread*) = aux;
-  struct thread* T1 = list_entry(t1, struct thread, sleep_elem);
-  struct thread* T2 = list_entry(t2, struct thread, sleep_elem);
+  struct thread* T1 = list_entry(t1, struct thread, elem);
+  struct thread* T2 = list_entry(t2, struct thread, elem);
   return (*auxt)(T1, T2);
 }
 /*compare priority of threads*/
 bool prio_less(struct thread* t1, struct thread* t2) { return t1->priority < t2->priority; }
 /* Strict priority scheduler */
 static struct thread* thread_schedule_prio(void) {
-  if (!list_empty(&fifo_ready_list)) {
-    list_sort(&fifo_ready_list, less_list, prio_less);
-    return list_entry(list_pop_back(&fifo_ready_list), struct thread, elem);
-  } else {
-    return idle_thread;
+  for (int i = 63; i >= 0; i--) {
+    if (!list_empty(&prio_ready_list[i])) {
+      return list_entry(list_pop_front(&prio_ready_list[i]), struct thread, elem);
+    }
   }
+  return idle_thread;
 }
 
 /* Fair priority scheduler */
