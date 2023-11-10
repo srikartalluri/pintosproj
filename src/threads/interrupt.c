@@ -363,6 +363,14 @@ void intr_handler(struct intr_frame* frame) {
     if (yield_on_return)
       thread_yield();
   }
+
+#ifdef USERPROG
+  t = thread_current();
+  if (is_trap_from_userspace(frame) && t->user_thread_item_ptr != NULL &&
+      t->user_thread_item_ptr->needs_to_stop) {
+    pthread_exit();
+  }
+#endif
 }
 
 /* Handles an unexpected interrupt with interrupt frame F.  An

@@ -80,6 +80,14 @@ int64_t timer_ticks(void) {
    should be a value once returned by timer_ticks(). */
 int64_t timer_elapsed(int64_t then) { return timer_ticks() - then; }
 
+/*comparator function to check which sleeping threads have highest priority*/
+bool less_list_sleep(const struct list_elem* t1, const struct list_elem* t2, void* aux) {
+  bool (*auxt)(struct thread*, struct thread*) = aux;
+  struct thread* T1 = list_entry(t1, struct thread, sleep_elem);
+  struct thread* T2 = list_entry(t2, struct thread, sleep_elem);
+  return (*auxt)(T2, T1);
+}
+
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void timer_sleep(int64_t ticks) {
@@ -89,14 +97,13 @@ void timer_sleep(int64_t ticks) {
   int64_t start = timer_ticks();
   struct thread* t = thread_current();
   ASSERT(intr_get_level() == INTR_ON);
+  old_level = intr_disable();        //diable interrupts to avoid synchronization issues
   t->wu_time = ticks + start;
 
-  lock_acquire(&sleep_lock);
-  list_push_back(&sleepy_boiz, &(t->sleep_elem));
-  list_sort(&sleepy_boiz, less_list, prio_less);
-  lock_release(&sleep_lock);
+  /*add thread to list of sleeping threads and sort the list by decreasing prio to ensure high prio threads wake up sooner*/
+  list_push_back(&sleepy_boiz, &(t->sleep_elem));     
 
-  old_level = intr_disable();
+  /* put to sleep*/
   thread_block();
   intr_set_level(old_level);
 }
@@ -153,7 +160,8 @@ static void timer_interrupt(struct intr_frame* args UNUSED) {
   struct thread* t;
 
   e = list_begin(&sleepy_boiz);
-
+  /* loop through all threads (starting from the thread with highest priority since we reverse sorted)
+   and wake up those who have passed their wake up time. Yield if the new thread has higher priority than the current thread*/
   while (e != list_end(&sleepy_boiz)) {
     t = list_entry(e, struct thread, sleep_elem);
     e = list_next(e);
@@ -161,7 +169,10 @@ static void timer_interrupt(struct intr_frame* args UNUSED) {
       list_remove(&(t->sleep_elem));
 
       thread_unblock(t);
+
+      if(t->priority > thread_current()->priority) intr_yield_on_return();
     }
+    
   }
 }
 
