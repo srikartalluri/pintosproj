@@ -35,11 +35,11 @@ bool sys_lock_init(char* ptr) {
 
   lock_init(&new_lock->kernel_lock);
   new_lock->lock_ptr = ptr;
-  old_lock_acquire(&usersync_lock);
+  lock_acquire(&usersync_lock);
   *ptr = unique_lock_id;
   new_lock->lock_id = unique_lock_id++;
   list_push_back(&p->user_lock_list, &new_lock->elem);
-  old_lock_release(&usersync_lock);
+  lock_release(&usersync_lock);
   return true;
 }
 
@@ -55,18 +55,18 @@ bool sys_sema_init(char* ptr, int val) {
 
   sema_init(&new_sema->kernel_semaphore, val);
   new_sema->sema_ptr = ptr;
-  old_lock_acquire(&usersync_lock);
+  lock_acquire(&usersync_lock);
   *ptr = unique_semaphore_id;
   new_sema->sema_id = unique_semaphore_id++;
   list_push_back(&p->user_sema_list, &new_sema->elem);
-  old_lock_release(&usersync_lock);
+  lock_release(&usersync_lock);
   return true;
 }
 
 void sys_lock_acquire(char* ptr) {
   struct thread* t = thread_current();
   struct process* p = t->pcb;
-  old_lock_acquire(&usersync_lock);
+  lock_acquire(&usersync_lock);
   bool found_lock = false;
   struct lock_item* found_lock_item = NULL;
 
@@ -80,7 +80,7 @@ void sys_lock_acquire(char* ptr) {
     }
   }
 
-  old_lock_release(&usersync_lock);
+  lock_release(&usersync_lock);
 
   if (!found_lock) {
     do_exit(1);
@@ -88,14 +88,14 @@ void sys_lock_acquire(char* ptr) {
     if (lock_held_by_current_thread(&found_lock_item->kernel_lock)) {
       do_exit(1);
     }
-    old_lock_acquire(&found_lock_item->kernel_lock);
+    lock_acquire(&found_lock_item->kernel_lock);
   }
 }
 
 void sys_lock_release(char* ptr) {
   struct thread* t = thread_current();
   struct process* p = t->pcb;
-  old_lock_acquire(&usersync_lock);
+  lock_acquire(&usersync_lock);
   bool found_lock = false;
   struct lock_item* found_lock_item = NULL;
 
@@ -109,7 +109,7 @@ void sys_lock_release(char* ptr) {
     }
   }
 
-  old_lock_release(&usersync_lock);
+  lock_release(&usersync_lock);
 
   if (!found_lock) {
     do_exit(1);
@@ -117,14 +117,14 @@ void sys_lock_release(char* ptr) {
     if (!lock_held_by_current_thread(&found_lock_item->kernel_lock)) {
       do_exit(1);
     }
-    old_lock_release(&found_lock_item->kernel_lock);
+    lock_release(&found_lock_item->kernel_lock);
   }
 }
 
 void sys_sema_up(char* ptr) {
   struct thread* t = thread_current();
   struct process* p = t->pcb;
-  old_lock_acquire(&usersync_lock);
+  lock_acquire(&usersync_lock);
   bool found_sema = false;
   struct semaphore_item* found_sema_item = NULL;
 
@@ -138,19 +138,19 @@ void sys_sema_up(char* ptr) {
     }
   }
 
-  old_lock_release(&usersync_lock);
+  lock_release(&usersync_lock);
 
   if (!found_sema) {
     do_exit(1);
   } else {
-    old_sema_up(&found_sema_item->kernel_semaphore);
+    sema_up(&found_sema_item->kernel_semaphore);
   }
 }
 
 void sys_sema_down(char* ptr) {
   struct thread* t = thread_current();
   struct process* p = t->pcb;
-  old_lock_acquire(&usersync_lock);
+  lock_acquire(&usersync_lock);
   bool found_sema = false;
   struct semaphore_item* found_sema_item = NULL;
 
@@ -164,11 +164,11 @@ void sys_sema_down(char* ptr) {
     }
   }
 
-  old_lock_release(&usersync_lock);
+  lock_release(&usersync_lock);
 
   if (!found_sema) {
     do_exit(1);
   } else {
-    old_sema_down(&found_sema_item->kernel_semaphore);
+    sema_down(&found_sema_item->kernel_semaphore);
   }
 }

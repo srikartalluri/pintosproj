@@ -70,9 +70,7 @@ struct process {
 
   struct lock lock; /* potentially shared data of the pcb when multiple threads touch*/
   struct lock exit_lock; /* Lock used so that new threads are not added during exit */
-  uint8_t* next_page_uaddr; /* next user address to allocate a stack onto */
-
-  int num_user_stacks_allocated;
+  uint8_t* next_page_uaddr;
 };
 
 void userprog_init(void);

@@ -87,16 +87,14 @@ struct thread {
   enum thread_status status; /* Thread state. */
   char name[16];             /* Name (for debugging purposes). */
   uint8_t* stack;            /* Saved stack pointer. */
-  int priority;              /* modifiable Priority. */
-  int og_prio;               /*priority at birth*/
+  int priority;              /* Priority. */
   struct list_elem allelem;  /* List element for all threads list. */
   struct lock timer;
   /* Shared between thread.c and synch.c. */
-  struct list locks;         /*list of locks we are holding*/
-  struct lock* waiting_lock; /*lock we are waiting on*/
   struct list_elem elem; /* List element. */
   struct list_elem sleep_elem; /* List for sleeping element. */
   int64_t wu_time;       /*time tick at which thread needs to wake up*/
+
   struct user_thread_item* user_thread_item_ptr; // pointer to user_thread_item if there is a user thread item
 
 #ifdef USERPROG
@@ -147,7 +145,6 @@ void thread_yield(void);
 typedef void thread_action_func(struct thread* t, void* aux);
 void thread_foreach(thread_action_func*, void*);
 
-
 int thread_get_priority(void);
 void thread_set_priority(int);
 
@@ -158,9 +155,5 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
-
-void set_prio_helper(int prio, struct thread* t);
-
-
 
 #endif /* threads/thread.h */

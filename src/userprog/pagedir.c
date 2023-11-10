@@ -114,7 +114,6 @@ void* pagedir_get_page(uint32_t* pd, const void* uaddr) {
 
   pte = lookup_page(pd, uaddr, false);
   // adding the mapp from all uaddr 0 -> 0
-
   if (uaddr == 0)
     return NULL;
   else if (pte != NULL && (*pte & PTE_P) != 0)

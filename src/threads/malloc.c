@@ -223,14 +223,11 @@ void free(void* p) {
         }
         palloc_free_page(a);
       }
-    
 
       lock_release(&d->lock);
-       
     } else {
       /* It's a big block.  Free its pages. */
       palloc_free_multiple(a, a->free_cnt);
-      
       return;
     }
   }
