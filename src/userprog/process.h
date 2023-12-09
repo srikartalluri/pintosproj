@@ -34,6 +34,7 @@ struct process_child_item {
   bool waited;
   int exit_code;
   struct list_elem elem;
+  struct dir* pass_down_cwd;
 };
 
 // Item representing capabilties to support thread_join and so on
@@ -71,6 +72,8 @@ struct process {
   struct lock lock; /* potentially shared data of the pcb when multiple threads touch*/
   struct lock exit_lock; /* Lock used so that new threads are not added during exit */
   uint8_t* next_page_uaddr; /* next user address to allocate a stack onto */
+
+  struct dir* cwd;
 
   int num_user_stacks_allocated;
 };

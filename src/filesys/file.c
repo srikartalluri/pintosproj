@@ -29,9 +29,7 @@ struct file* file_open(struct inode* inode) {
 
 /* Opens and returns a new file for the same inode as FILE.
    Returns a null pointer if unsuccessful. */
-struct file* file_reopen(struct file* file) {
-  return file_open(inode_reopen(file->inode));
-}
+struct file* file_reopen(struct file* file) { return file_open(inode_reopen(file->inode)); }
 
 /* Closes FILE. */
 void file_close(struct file* file) {
@@ -43,9 +41,7 @@ void file_close(struct file* file) {
 }
 
 /* Returns the inode encapsulated by FILE. */
-struct inode* file_get_inode(struct file* file) {
-  return file->inode;
-}
+struct inode* file_get_inode(struct file* file) { return file->inode; }
 
 /* Reads SIZE bytes from FILE into BUFFER,
    starting at the file's current position.

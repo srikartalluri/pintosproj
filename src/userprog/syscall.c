@@ -5,10 +5,12 @@
 #include "threads/thread.h"
 #include "userprog/process.h"
 #include "userprog/usersync.h"
+#include "userprog/syscall.h"
 #include "devices/shutdown.h"
 #include "threads/synch.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "filesys/directory.h"
 #include <stdio.h>
 #include <string.h>
 #include "threads/vaddr.h"
@@ -20,12 +22,15 @@ struct lock file_lock;
 static void syscall_handler(struct intr_frame*);
 
 //list for all the files
-struct file_node {
+struct file_descriptor {
   pid_t file_pid;
   bool is_executable;
   int fd;
   char* name;
   struct file* file_ptr;
+  struct dir* dir_ptr;
+
+  bool is_dir;
 
   struct list_elem elem;
 };
@@ -35,18 +40,18 @@ struct list* file_list;
 /* frees the file descriptors for a given process id */
 void free_file_descriptors_for_process(pid_t pid) {
   const int MAX_NUM_FILES = 200;
-  struct file_node* list_elem_buffer[MAX_NUM_FILES];
+  struct file_descriptor* list_elem_buffer[MAX_NUM_FILES];
 
   int buf_idx = 0;
   for (struct list_elem* e = list_begin(file_list); e != list_end(file_list); e = list_next(e)) {
-    struct file_node* file = list_entry(e, struct file_node, elem);
+    struct file_descriptor* file = list_entry(e, struct file_descriptor, elem);
     if (file->file_pid == pid) {
       list_elem_buffer[buf_idx++] = file;
     }
   }
 
   for (int i = 0; i < buf_idx; i++) {
-    struct file_node* ptr = list_elem_buffer[i];
+    struct file_descriptor* ptr = list_elem_buffer[i];
     list_remove(&ptr->elem);
     file_close(ptr->file_ptr);
     free(ptr->name);
@@ -65,8 +70,8 @@ static void print_file_list() {
   for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list);
        iter = list_next(iter)) {
 
-    struct file_node* cur_file_node = list_entry(iter, struct file_node, elem);
-    printf("file name: %s. fd: %d. pid: %d\n", cur_file_node->name, cur_file_node);
+    struct file_descriptor* cur_file_descriptor = list_entry(iter, struct file_descriptor, elem);
+    printf("file name: %s. fd: %d. pid: %d\n", cur_file_descriptor->name, cur_file_descriptor);
   }
 }
 
@@ -113,6 +118,32 @@ static bool syscall_create(char* file_name, int num_bytes) {
   ;
 }
 
+static bool syscall_mkdir(char* dir_name) {
+  if (dir_name == NULL)
+    do_exit(-1);
+
+  if (strlen(dir_name) == 0) {
+    return false;
+  }
+
+  return filesys_mkdir(dir_name);
+}
+
+static bool syscall_chdir(char* dir_name) {
+  if (dir_name == NULL || strlen(dir_name) == 0) {
+    do_exit(-1);
+  }
+  struct dir* found_dir = NULL;
+  bool ret = filesys_open(dir_name, NULL, &found_dir);
+
+  if (found_dir != NULL) {
+    dir_close(thread_current()->pcb->cwd);
+    thread_current()->pcb->cwd = found_dir;
+  }
+
+  return ret;
+}
+
 /*handler for the remove syscall*/
 static bool syscall_remove(char* file_name) {
   /*Start Arg Val*/
@@ -145,8 +176,10 @@ static int syscall_open(char* file_name) {
   }
   /*End Arg Val*/
 
-  struct file* opened_file = filesys_open(file_name);
-  if (opened_file == NULL) {
+  struct file* opened_file = NULL;
+  struct dir* opened_dir = NULL;
+  bool operation_result = filesys_open(file_name, &opened_file, &opened_dir);
+  if (!operation_result) {
     return -1;
   }
 
@@ -155,25 +188,27 @@ static int syscall_open(char* file_name) {
   /*Since we opened file, we need new fd's and new entry on our
   fd table. The following chunk allocates space for a new entry and sets
   all the values*/
-  struct file_node* new_file_node = malloc(sizeof(struct file_node));
+  struct file_descriptor* new_file_descriptor = malloc(sizeof(struct file_descriptor));
   struct list_elem new_list_elem;
 
-  new_file_node->elem = new_list_elem;
-  new_file_node->fd = new_fd;
-  new_file_node->file_pid = get_cur_pid();
-  new_file_node->file_ptr = opened_file;
+  new_file_descriptor->elem = new_list_elem;
+  new_file_descriptor->fd = new_fd;
+  new_file_descriptor->file_pid = get_cur_pid();
+  new_file_descriptor->file_ptr = opened_file;
+  new_file_descriptor->dir_ptr = opened_dir;
+  new_file_descriptor->is_dir = opened_dir != NULL;
 
-  new_file_node->is_executable = false;
+  new_file_descriptor->is_executable = false;
 
   if (strcmp(thread_current()->pcb->process_name, file_name) == 0) {
-    new_file_node->is_executable = true;
-    file_deny_write(new_file_node->file_ptr);
+    new_file_descriptor->is_executable = true;
+    file_deny_write(new_file_descriptor->file_ptr);
   }
 
-  new_file_node->name = malloc(strlen(file_name) + 1);
-  strlcpy(new_file_node->name, file_name, sizeof(new_file_node->name));
+  new_file_descriptor->name = malloc(strlen(file_name) + 1);
+  strlcpy(new_file_descriptor->name, file_name, sizeof(new_file_descriptor->name));
 
-  list_push_back(file_list, &(new_file_node->elem));
+  list_push_back(file_list, &(new_file_descriptor->elem));
 
   return new_fd;
 }
@@ -185,15 +220,80 @@ static void syscall_close(int fd) {
 
   for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list);
        iter = list_next(iter)) {
-    struct file_node* cur_file_node = list_entry(iter, struct file_node, elem);
-    if (cur_file_node->fd == fd && cur_file_node->file_pid == get_cur_pid()) {
-      file_close(cur_file_node->file_ptr);
+    struct file_descriptor* cur_file_descriptor = list_entry(iter, struct file_descriptor, elem);
+    if (cur_file_descriptor->fd == fd && cur_file_descriptor->file_pid == get_cur_pid()) {
+      file_close(cur_file_descriptor->file_ptr);
 
-      list_remove(&(cur_file_node->elem));
-      free(cur_file_node->name);
-      free(cur_file_node);
+      list_remove(&(cur_file_descriptor->elem));
+      free(cur_file_descriptor->name);
+      free(cur_file_descriptor);
       return;
     }
+  }
+}
+
+static bool syscall_isdir(int fd) {
+  if (fd < 3) {
+    return false;
+  }
+
+  for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list);
+       iter = list_next(iter)) {
+    struct file_descriptor* cur_file_descriptor = list_entry(iter, struct file_descriptor, elem);
+    if (cur_file_descriptor->fd == fd && cur_file_descriptor->file_pid == get_cur_pid()) {
+      return cur_file_descriptor->is_dir;
+    }
+  }
+  return false;
+}
+
+static int syscall_inumber(int fd) {
+  if (fd < 3) {
+    return -1;
+  }
+
+  for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list);
+       iter = list_next(iter)) {
+    struct file_descriptor* cur_file_descriptor = list_entry(iter, struct file_descriptor, elem);
+    if (cur_file_descriptor->fd == fd && cur_file_descriptor->file_pid == get_cur_pid()) {
+      if (cur_file_descriptor->is_dir) {
+        return dir_get_inode(cur_file_descriptor->dir_ptr);
+      } else {
+        return file_get_inode(cur_file_descriptor->file_ptr);
+      }
+    }
+  }
+  return false;
+}
+
+static bool syscall_readdir(int fd, char name[14 + 1]) {
+  if (name == NULL || fd < 3) {
+    return false;
+  }
+  bool found_guy = false;
+  for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list);
+       iter = list_next(iter)) {
+
+    struct file_descriptor* cur_file_descriptor = list_entry(iter, struct file_descriptor, elem);
+
+    if (cur_file_descriptor->fd == fd && cur_file_descriptor->file_pid == get_cur_pid()) {
+      if (!cur_file_descriptor->is_dir) {
+        do_exit(-1);
+      }
+      struct dir* current_dir = cur_file_descriptor->dir_ptr;
+      while (dir_readdir(current_dir, name)) {
+        if (!strcmp(name, "."))
+          continue;
+
+        if (!strcmp(name, ".."))
+          continue;
+
+        found_guy = true;
+        break;
+      }
+      return found_guy;
+    }
+    return false;
   }
 }
 
@@ -207,10 +307,10 @@ static int syscall_filesize(int fd) {
   for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list);
        iter = list_next(iter)) {
 
-    struct file_node* cur_file_node = list_entry(iter, struct file_node, elem);
+    struct file_descriptor* cur_file_descriptor = list_entry(iter, struct file_descriptor, elem);
 
-    if (cur_file_node->fd == fd && cur_file_node->file_pid == get_cur_pid()) {
-      return file_length(cur_file_node->file_ptr);
+    if (cur_file_descriptor->fd == fd && cur_file_descriptor->file_pid == get_cur_pid()) {
+      return file_length(cur_file_descriptor->file_ptr);
     }
   }
   return -1;
@@ -221,9 +321,12 @@ static int syscall_read(int fd, void* buffer, unsigned size) {
   for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list);
        iter = list_next(iter)) {
 
-    struct file_node* cur_file_node = list_entry(iter, struct file_node, elem);
-    if (cur_file_node->fd == fd && cur_file_node->file_pid == get_cur_pid()) {
-      int ret = file_read(cur_file_node->file_ptr, buffer, size);
+    struct file_descriptor* cur_file_descriptor = list_entry(iter, struct file_descriptor, elem);
+    if (cur_file_descriptor->fd == fd && cur_file_descriptor->file_pid == get_cur_pid()) {
+      if (cur_file_descriptor->is_dir) {
+        return -1;
+      }
+      int ret = file_read(cur_file_descriptor->file_ptr, buffer, size);
       return ret;
     }
   }
@@ -241,9 +344,12 @@ static int syscall_write(int fd, void* buffer, unsigned size) {
   }
   for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list);
        iter = list_next(iter)) {
-    struct file_node* cur_file_node = list_entry(iter, struct file_node, elem);
-    if (cur_file_node->fd == fd && cur_file_node->file_pid == get_cur_pid()) {
-      int ret = file_write(cur_file_node->file_ptr, buffer, size);
+    struct file_descriptor* cur_file_descriptor = list_entry(iter, struct file_descriptor, elem);
+    if (cur_file_descriptor->fd == fd && cur_file_descriptor->file_pid == get_cur_pid()) {
+      if (cur_file_descriptor->is_dir) {
+        return -1;
+      }
+      int ret = file_write(cur_file_descriptor->file_ptr, buffer, size);
       return ret;
     }
   }
@@ -257,9 +363,9 @@ static void syscall_seek(int fd, unsigned pos) {
 
   for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list);
        iter = list_next(iter)) {
-    struct file_node* cur_file_node = list_entry(iter, struct file_node, elem);
-    if (cur_file_node->fd == fd && cur_file_node->file_pid == get_cur_pid()) {
-      file_seek(cur_file_node->file_ptr, pos);
+    struct file_descriptor* cur_file_descriptor = list_entry(iter, struct file_descriptor, elem);
+    if (cur_file_descriptor->fd == fd && cur_file_descriptor->file_pid == get_cur_pid()) {
+      file_seek(cur_file_descriptor->file_ptr, pos);
       return;
     }
   }
@@ -272,9 +378,9 @@ static int syscall_tell(int fd) {
 
   for (struct list_elem* iter = list_begin(file_list); iter != list_tail(file_list);
        iter = list_next(iter)) {
-    struct file_node* cur_file_node = list_entry(iter, struct file_node, elem);
-    if (cur_file_node->fd == fd && cur_file_node->file_pid == get_cur_pid()) {
-      return file_tell(cur_file_node->file_ptr);
+    struct file_descriptor* cur_file_descriptor = list_entry(iter, struct file_descriptor, elem);
+    if (cur_file_descriptor->fd == fd && cur_file_descriptor->file_pid == get_cur_pid()) {
+      return file_tell(cur_file_descriptor->file_ptr);
     }
   }
 }
@@ -334,7 +440,14 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       3, // SYS_SEMA_INIT,
       2, // SYS_SEMA_DOWN,
       2, // SYS_SEMA_UP,
-      1  // SYS_GET_TID,
+      1, // SYS_GET_TID,
+      2, // SYS_MMAP
+      2, // SYS_NUMMAP
+      2, //  SYS_CHDIR,
+      2, //   SYS_MKDIR,
+      3, //   SYS_READDIR,
+      2, //   SYS_ISDIR,
+      2, //   SYS_INUMBER
   };
 
   for (int i = 0; i < num_args[args[0]]; i++) {
@@ -473,6 +586,31 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     case SYS_GET_TID:
       f->eax = thread_current()->tid;
+      break;
+    case SYS_MKDIR:
+      old_lock_acquire(&file_lock);
+      f->eax = syscall_mkdir(args[1]);
+      old_lock_release(&file_lock);
+      break;
+    case SYS_CHDIR:
+      old_lock_acquire(&file_lock);
+      f->eax = syscall_chdir(args[1]);
+      old_lock_release(&file_lock);
+      break;
+    case SYS_ISDIR:
+      old_lock_acquire(&file_lock);
+      f->eax = syscall_isdir(args[1]);
+      old_lock_release(&file_lock);
+      break;
+    case SYS_INUMBER:
+      old_lock_acquire(&file_lock);
+      f->eax = syscall_inumber(args[1]);
+      old_lock_release(&file_lock);
+      break;
+    case SYS_READDIR:
+      old_lock_acquire(&file_lock);
+      f->eax = syscall_readdir(args[1], args[2]);
+      old_lock_release(&file_lock);
       break;
   }
 }

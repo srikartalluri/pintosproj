@@ -67,6 +67,7 @@ void userprog_init(void) {
   struct user_thread_item* main_user_thread_item = create_user_thread_item(t, NULL, NULL);
   list_push_back(&t->pcb->user_thread_list, &main_user_thread_item->elem);
   t->user_thread_item_ptr = main_user_thread_item;
+  t->pcb->cwd = NULL;
 
   lock_init(&t->pcb->lock);
   lock_init(&t->pcb->exit_lock);
@@ -113,6 +114,7 @@ pid_t process_execute(const char* file_name) {
   process_child->successful_load = true;
   process_child->exit_code = -1;
   process_child->waited = false;
+  process_child->pass_down_cwd = thread_current()->pcb->cwd;
   sema_init(&process_child->semaphore, 0);
   lock_init(&process_child->lock);
 
@@ -182,6 +184,7 @@ static void start_process(void* process_item_) {
     t->pcb->item_ptr = process_item;
     t->pcb->next_page_uaddr = PHYS_BASE - 2 * PGSIZE;
     t->pcb->num_user_stacks_allocated = 0;
+    t->pcb->cwd = dir_reopen(process_item->pass_down_cwd);
 
     old_lock_acquire(&process_item->lock);
     process_item->pid = get_pid(t->pcb);
@@ -372,6 +375,7 @@ void process_exit(void) {
 
   int pid = get_pid(cur->pcb);
   struct process* p = cur->pcb;
+  dir_close(p->cwd);
 
   old_lock_acquire(&p->exit_lock);
   for (struct list_elem* e = list_begin(&p->user_thread_list); e != list_end(&p->user_thread_list);
@@ -595,7 +599,8 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   process_activate();
 
   /* Open executable file. */
-  file = filesys_open(file_name);
+  file = NULL;
+  bool successful = filesys_open(file_name, &file, NULL);
   if (file == NULL) {
     printf("load: %s: open failed\n", file_name);
     goto done;

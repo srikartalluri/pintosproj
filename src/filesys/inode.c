@@ -2,6 +2,7 @@
 #include <list.h>
 #include <debug.h>
 #include <round.h>
+#include <stdbool.h>
 #include <string.h>
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
@@ -16,6 +17,7 @@ struct inode_disk {
   block_sector_t start; /* First data sector. */
   off_t length;         /* File size in bytes. */
   unsigned magic;       /* Magic number. */
+  // using integer so everything comes in 4 bytes
   uint32_t unused[125]; /* Not used. */
 };
 
@@ -51,6 +53,7 @@ static struct list open_inodes;
 
 /* Initializes the inode module. */
 void inode_init(void) { list_init(&open_inodes); }
+bool is_removed(const struct inode* inode) { return inode->removed; }
 
 /* Initializes an inode with LENGTH bytes of data and
    writes the new inode to sector SECTOR on the file system

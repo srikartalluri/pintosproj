@@ -31,11 +31,11 @@ void fsutil_ls(char** argv UNUSED) {
 void fsutil_cat(char** argv) {
   const char* file_name = argv[1];
 
-  struct file* file;
+  struct file* file = NULL;
   char* buffer;
 
   printf("Printing '%s' to the console...\n", file_name);
-  file = filesys_open(file_name);
+  bool success = filesys_open(file_name, &file, NULL);
   if (file == NULL)
     PANIC("%s: open failed", file_name);
   buffer = palloc_get_page(PAL_ASSERT);
@@ -100,14 +100,14 @@ void fsutil_extract(char** argv UNUSED) {
     } else if (type == USTAR_DIRECTORY)
       printf("ignoring directory %s\n", file_name);
     else if (type == USTAR_REGULAR) {
-      struct file* dst;
+      struct file* dst = NULL;
 
       printf("Putting '%s' into the file system...\n", file_name);
 
       /* Create destination file. */
       if (!filesys_create(file_name, size))
         PANIC("%s: create failed", file_name);
-      dst = filesys_open(file_name);
+      filesys_open(file_name, &dst, NULL);
       if (dst == NULL)
         PANIC("%s: open failed", file_name);
 
@@ -151,7 +151,7 @@ void fsutil_append(char** argv) {
 
   const char* file_name = argv[1];
   void* buffer;
-  struct file* src;
+  struct file* src = NULL;
   struct block* dst;
   off_t size;
 
@@ -163,8 +163,8 @@ void fsutil_append(char** argv) {
     PANIC("couldn't allocate buffer");
 
   /* Open source file. */
-  src = filesys_open(file_name);
-  if (src == NULL)
+  bool success = filesys_open(file_name, &src, NULL);
+  if (!success)
     PANIC("%s: open failed", file_name);
   size = file_length(src);
 
