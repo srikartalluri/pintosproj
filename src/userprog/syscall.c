@@ -205,8 +205,8 @@ static int syscall_open(char* file_name) {
     file_deny_write(new_file_descriptor->file_ptr);
   }
 
-  new_file_descriptor->name = malloc(strlen(file_name) + 1);
-  strlcpy(new_file_descriptor->name, file_name, sizeof(new_file_descriptor->name));
+  new_file_node->name = malloc(strlen(file_name) + 1);
+  strlcpy(new_file_node->name, file_name, strlen(new_file_node->name) + 1);
 
   list_push_back(file_list, &(new_file_descriptor->elem));
 

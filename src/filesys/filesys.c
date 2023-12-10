@@ -37,7 +37,10 @@ void filesys_init(bool format) {
 
 /* Shuts down the file system module, writing any unwritten data
    to disk. */
-void filesys_done(void) { free_map_close(); }
+void filesys_done(void) {
+  free_map_close();
+  inode_end();
+}
 
 /* Extracts a file name part from *SRCP into PART, and updates *SRCP so that the
    next call will return the next file name part. Returns 1 if successful, 0 at
@@ -94,7 +97,7 @@ bool get_list_of_names(const char* path, struct list* lst) {
 // frees the corresponding list of names
 int free_list_of_names(struct list* lst) {
   // where we are at in the path
-  struct name_info* name_info_buffer[DEPTH_MAX + 5];
+  struct name_info** name_info_buffer = malloc((DEPTH_MAX + 5) * sizeof(struct name_info*));
   int p = 0;
   for (struct list_elem* e = list_begin(lst); e != list_end(lst); e = list_next(e)) {
     struct name_info* name_info = list_entry(e, struct name_info, elem);
@@ -104,6 +107,7 @@ int free_list_of_names(struct list* lst) {
     free(name_info_buffer[i]->name);
     free(name_info_buffer[i]);
   }
+  free(name_info_buffer);
   return 1;
 }
 
