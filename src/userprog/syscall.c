@@ -296,8 +296,8 @@ static bool syscall_readdir(int fd, char name[14 + 1]) {
       }
       return found_guy;
     }
-    return false;
   }
+  return false;
 }
 
 /*handler for the filesize syscall*/
