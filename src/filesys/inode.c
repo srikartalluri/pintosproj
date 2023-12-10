@@ -123,6 +123,7 @@ static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
 static struct list open_inodes;
 
 uint8_t* zero_buffer;
+int num_inodes_on_disk;
 
 /* Initializes the inode module. */
 void inode_init(void) {
@@ -130,6 +131,7 @@ void inode_init(void) {
   cache_init();
   lock_init(&freemap_lock);
 
+  num_inodes_on_disk = 0;
   zero_buffer = malloc(BLOCK_SECTOR_SIZE);
   memset(zero_buffer, 0, BLOCK_SECTOR_SIZE);
 }
@@ -269,6 +271,8 @@ static bool inode_resize(struct inode_disk* inode, off_t length) {
   return true;
 }
 
+const int MAX_NUM_INODES = 500;
+
 /* Initializes an inode with LENGTH bytes of data and
    writes the new inode to sector SECTOR on the file system
    device.
@@ -279,6 +283,9 @@ bool inode_create(block_sector_t sector, off_t length) {
   bool success = false;
 
   ASSERT(length >= 0);
+
+  if (num_inodes_on_disk >= MAX_NUM_INODES)
+    return false;
 
   /* If this assertion fails, the inode structure is not exactly
      one sector in size, and you should fix that. */
@@ -293,6 +300,7 @@ bool inode_create(block_sector_t sector, off_t length) {
 
   cache_write(sector, disk_inode);
   free(disk_inode);
+  num_inodes_on_disk++;
   return success;
 }
 
@@ -354,6 +362,7 @@ void inode_close(struct inode* inode) {
       cache_read(inode->sector, buf);
       inode_resize(buf, 0);
       free_map_release(inode->sector, 1);
+      num_inodes_on_disk--;
     }
 
     free(inode);
