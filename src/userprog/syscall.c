@@ -40,7 +40,8 @@ struct list* file_list;
 /* frees the file descriptors for a given process id */
 void free_file_descriptors_for_process(pid_t pid) {
   const int MAX_NUM_FILES = 200;
-  struct file_descriptor* list_elem_buffer[MAX_NUM_FILES];
+  struct file_descriptor** list_elem_buffer =
+      malloc(sizeof(struct file_descriptor*) * MAX_NUM_FILES);
 
   int buf_idx = 0;
   for (struct list_elem* e = list_begin(file_list); e != list_end(file_list); e = list_next(e)) {
@@ -57,6 +58,8 @@ void free_file_descriptors_for_process(pid_t pid) {
     free(ptr->name);
     free(ptr);
   }
+
+  free(list_elem_buffer);
 };
 
 /*global fd counter. I increment this every call to open. Pretty shit way of getting next available fd*/
@@ -205,8 +208,8 @@ static int syscall_open(char* file_name) {
     file_deny_write(new_file_descriptor->file_ptr);
   }
 
-  new_file_node->name = malloc(strlen(file_name) + 1);
-  strlcpy(new_file_node->name, file_name, strlen(new_file_node->name) + 1);
+  new_file_descriptor->name = malloc(strlen(file_name) + 1);
+  strlcpy(new_file_descriptor->name, file_name, strlen(new_file_descriptor->name) + 1);
 
   list_push_back(file_list, &(new_file_descriptor->elem));
 
@@ -473,44 +476,35 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = args[1] + 1;
       break;
     case SYS_HALT:
+      flush();
       shutdown_power_off();
       break;
     case SYS_CREATE:
       if (is_bad_string(args[1])) {
         do_exit(-1);
       }
-      old_lock_acquire(&file_lock);
       f->eax = syscall_create(args[1], args[2]);
-      old_lock_release(&file_lock);
       break;
     case SYS_REMOVE:
       if (is_bad_string(args[1])) {
         do_exit(-1);
       }
-      old_lock_acquire(&file_lock);
       f->eax = syscall_remove(args[1]);
-      old_lock_release(&file_lock);
       break;
     case SYS_OPEN:
       if (is_bad_address(args[1])) {
         do_exit(-1);
       }
-      old_lock_acquire(&file_lock);
       f->eax = syscall_open(args[1]);
-      old_lock_release(&file_lock);
       break;
     case SYS_FILESIZE:
-      old_lock_acquire(&file_lock);
       f->eax = syscall_filesize(args[1]);
-      old_lock_release(&file_lock);
       break;
     case SYS_READ:
       if (is_bad_string(args[2])) {
         do_exit(-1);
       }
-      old_lock_acquire(&file_lock);
       f->eax = syscall_read(args[1], args[2], args[3]);
-      old_lock_release(&file_lock);
       break;
     case SYS_WRITE:
       if (is_bad_string(args[2])) {
@@ -521,19 +515,13 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       old_lock_release(&file_lock);
       break;
     case SYS_SEEK:
-      old_lock_acquire(&file_lock);
       syscall_seek(args[1], args[2]);
-      old_lock_release(&file_lock);
       break;
     case SYS_TELL:
-      old_lock_acquire(&file_lock);
       f->eax = syscall_tell(args[1]);
-      old_lock_release(&file_lock);
       break;
     case SYS_CLOSE:
-      old_lock_acquire(&file_lock);
       syscall_close(args[1]);
-      old_lock_release(&file_lock);
       break;
     case SYS_EXEC:
       char* executing_cmd = args[1];
@@ -588,29 +576,19 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = thread_current()->tid;
       break;
     case SYS_MKDIR:
-      old_lock_acquire(&file_lock);
       f->eax = syscall_mkdir(args[1]);
-      old_lock_release(&file_lock);
       break;
     case SYS_CHDIR:
-      old_lock_acquire(&file_lock);
       f->eax = syscall_chdir(args[1]);
-      old_lock_release(&file_lock);
       break;
     case SYS_ISDIR:
-      old_lock_acquire(&file_lock);
       f->eax = syscall_isdir(args[1]);
-      old_lock_release(&file_lock);
       break;
     case SYS_INUMBER:
-      old_lock_acquire(&file_lock);
       f->eax = syscall_inumber(args[1]);
-      old_lock_release(&file_lock);
       break;
     case SYS_READDIR:
-      old_lock_acquire(&file_lock);
       f->eax = syscall_readdir(args[1], args[2]);
-      old_lock_release(&file_lock);
       break;
   }
 }

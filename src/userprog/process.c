@@ -11,6 +11,7 @@
 #include "userprog/tss.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
+#include "filesys/cache.h"
 #include "filesys/filesys.h"
 #include "threads/flags.h"
 #include "threads/init.h"
@@ -37,6 +38,7 @@ void do_exit(int code) {
   item->exit_code = code;
   old_lock_release(&item->lock);
   printf("%s: exit(%d)\n", thread_current()->pcb->process_name, code);
+  flush();
   process_exit();
 }
 
@@ -248,7 +250,7 @@ static void start_process(void* process_item_) {
   void* nxt_ptr = PHYS_BASE;
 
   const int MAX_ITEMS = 200;
-  char* arguments_buffer[MAX_ITEMS];
+  char** arguments_buffer = malloc(sizeof(char*) * MAX_ITEMS);
 
   int item_idx = 0;
   while (token != NULL) {
@@ -301,6 +303,8 @@ static void start_process(void* process_item_) {
   char*** address_argv = pagedir_get_page(t->pcb->pagedir, if_.esp + 8);
   *address_argc = argc;
   *address_argv = argv;
+
+  free(arguments_buffer);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in

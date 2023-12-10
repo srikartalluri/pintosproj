@@ -183,34 +183,12 @@ void lock_init(struct lock* lock) {
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
 void lock_acquire(struct lock* lock) {
-  enum intr_level old_level;
-  struct lock* l_dono;
-  struct thread* t_dono;
   ASSERT(lock != NULL);
   ASSERT(!intr_context());
   ASSERT(!lock_held_by_current_thread(lock));
-  struct thread* t = thread_current();
-  old_level = intr_disable();
-  t->waiting_lock = lock;
-  if (thread_current()->priority > lock->highest_priorty) {
-    lock->highest_priorty = thread_current()->priority;
-    if (lock->holder != NULL)
-      set_prio_helper(thread_current()->priority, lock->holder);
-    t_dono = lock->holder;
-    //for nesting priority donations
-    while (t_dono != NULL && t_dono->waiting_lock != NULL) {
-      t_dono = t_dono->waiting_lock->holder;
-      set_prio_helper(lock->highest_priorty, t_dono);
-    }
-  }
-  intr_set_level(old_level);
-  sema_down(&lock->semaphore);
-  old_level = intr_disable();
-  lock->holder = t;
-  t->waiting_lock = NULL;
-  list_push_back(&t->locks, &lock->elem);
-  //set_locks_prio(thread_current());
-  intr_set_level(old_level);
+
+  old_sema_down(&lock->semaphore);
+  lock->holder = thread_current();
 }
 
 void old_lock_acquire(struct lock* lock) {
@@ -281,68 +259,15 @@ bool lock_try_acquire(struct lock* lock) {
    make sense to try to release a lock within an interrupt
    handler. */
 void lock_release(struct lock* lock) {
-  enum intr_level old_level;
-  struct thread* tp = thread_current();
   ASSERT(lock != NULL);
   ASSERT(lock_held_by_current_thread(lock));
-  old_level = intr_disable();
+
   lock->holder = NULL;
-  list_remove(&lock->elem);
-  if (list_empty(&lock->semaphore.waiters)) {
-    lock->highest_priorty = 0;
-    intr_set_level(old_level);
-    sema_up(&lock->semaphore);
-    return;
-  }
-  intr_set_level(old_level);
-  sema_up(&lock->semaphore);
-  old_level = intr_disable();
-  if (list_empty(&lock->semaphore.waiters)) {
-    set_locks_prio(tp);
-    intr_set_level(old_level);
-    thread_set_priority(tp->og_prio);
-    return;
-  }
-  list_sort(&lock->semaphore.waiters, less_list, prio_less);
-  struct list_elem* e;
-  e = list_back(&lock->semaphore.waiters);
-  struct thread* t = list_entry(e, struct thread, elem);
-  lock->highest_priorty = t->priority;
-  set_locks_prio(tp);
-  intr_set_level(old_level);
-  thread_set_priority(tp->og_prio);
+  old_sema_up(&lock->semaphore);
 }
 /*comparitor for checking which lock has higher max-priority*/
 bool lock_comp(const struct lock* lock1, const struct lock* lock2) {
   return lock1->highest_priorty < lock2->highest_priorty;
-}
-
-/*set priority for all locks held by thread t*/
-void set_locks_prio(struct thread* t) {
-  struct list_elem* e;
-  struct list_elem* f;
-  int new_prio = 0;
-  struct lock* l;
-  struct thread* t2;
-  if (!list_empty(&t->locks)) {
-    for (e = list_begin(&t->locks); e != list_end(&t->locks); e = list_next(e)) {
-      l = list_entry(e, struct lock, elem);
-      if (!list_empty(&l->semaphore.waiters)) {
-        for (f = list_begin(&l->semaphore.waiters); f != list_end(&l->semaphore.waiters);
-             f = list_next(f)) {
-          t2 = list_entry(f, struct thread, elem);
-          new_prio = new_prio > t2->priority ? new_prio : t2->priority;
-        }
-      }
-      l->highest_priorty = new_prio;
-      //l->holder->priority = new_prio;
-      new_prio = 0;
-    }
-  }
-  if (t->waiting_lock) {
-    l = t->waiting_lock;
-    set_prio_helper(t->priority, l->holder);
-  }
 }
 
 /* Returns true if the current thread holds LOCK, false
