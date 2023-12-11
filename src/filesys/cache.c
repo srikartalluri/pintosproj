@@ -53,67 +53,67 @@ void cache_init() {
 
 /* Read sector sector into buffer */
 void cache_read(block_sector_t sector, uint8_t* buf) {
-  lock_acquire(&global_cache_lock);
-  block_read(fs_device, sector, buf);
-  lock_release(&global_cache_lock);
-  // old_lock_acquire(&global_cache_lock);
-  // for (int i = 0; i < CACHE_SIZE; i++) {
-  //   if (cache[i]->sector == sector) {
-  //     old_lock_acquire(&cache[i]->local_lock);
-  //     memcpy(buf, &cache[i]->data, BLOCK_SECTOR_SIZE);
-  //     cache[i]->ref = true;
-  //     old_lock_release(&cache[i]->local_lock);
-  //     old_lock_release(&global_cache_lock);
-  //     return;
-  //   }
-  // }
-  // //if not found, we need to evict
-  // evict_and_bring(sector);
-  // for (int i = 0; i < CACHE_SIZE; i++) {
-  //   if (cache[i]->sector == sector) {
-  //     old_lock_acquire(&cache[i]->local_lock);
-  //     memcpy(buf, &cache[i]->data, BLOCK_SECTOR_SIZE);
-  //     cache[i]->ref = true;
-  //     old_lock_release(&cache[i]->local_lock);
-  //     old_lock_release(&global_cache_lock);
-  //     return;
-  //   }
-  // }
+  // lock_acquire(&global_cache_lock);
+  // block_read(fs_device, sector, buf);
+  // lock_release(&global_cache_lock);
+  old_lock_acquire(&global_cache_lock);
+  for (int i = 0; i < CACHE_SIZE; i++) {
+    if (cache[i]->sector == sector) {
+      old_lock_acquire(&cache[i]->local_lock);
+      memcpy(buf, &cache[i]->data, BLOCK_SECTOR_SIZE);
+      cache[i]->ref = true;
+      old_lock_release(&cache[i]->local_lock);
+      old_lock_release(&global_cache_lock);
+      return;
+    }
+  }
+  //if not found, we need to evict
+  evict_and_bring(sector);
+  for (int i = 0; i < CACHE_SIZE; i++) {
+    if (cache[i]->sector == sector) {
+      old_lock_acquire(&cache[i]->local_lock);
+      memcpy(buf, &cache[i]->data, BLOCK_SECTOR_SIZE);
+      cache[i]->ref = true;
+      old_lock_release(&cache[i]->local_lock);
+      old_lock_release(&global_cache_lock);
+      return;
+    }
+  }
   // NOT_REACHED();
   // return;
 }
 
 /* write buffer into sector */
 void cache_write(block_sector_t sector, uint8_t* buf) {
-  lock_acquire(&global_cache_lock);
-  block_write(fs_device, sector, buf);
-  lock_release(&global_cache_lock);
-  // old_lock_acquire(&global_cache_lock);
-  // for (int i = 0; i < CACHE_SIZE; i++) {
-  //   if (cache[i]->sector == sector) {
-  //     old_lock_acquire(&cache[i]->local_lock);
-  //     memcpy(cache[i]->data, buf, BLOCK_SECTOR_SIZE);
-  //     cache[i]->ref = true;
-  //     cache[i]->dirty = true;
-  //     old_lock_release(&cache[i]->local_lock);
-  //     old_lock_release(&global_cache_lock);
-  //     return;
-  //   }
-  // }
+  // lock_acquire(&global_cache_lock);
+  // block_write(fs_device, sector, buf);
+  // lock_release(&global_cache_lock);
+  old_lock_acquire(&global_cache_lock);
+  for (int i = 0; i < CACHE_SIZE; i++) {
+    if (cache[i]->sector == sector) {
+      old_lock_acquire(&cache[i]->local_lock);
+      memcpy(cache[i]->data, buf, BLOCK_SECTOR_SIZE);
+      cache[i]->ref = true;
+      cache[i]->dirty = true;
+      old_lock_release(&cache[i]->local_lock);
+      old_lock_release(&global_cache_lock);
+      return;
+    }
+  }
 
-  // //if not found, we need to evict
-  // evict_and_bring(sector);
-  // for (int i = 0; i < CACHE_SIZE; i++) {
-  //   if (cache[i]->sector == sector) {
-  //     old_lock_acquire(&cache[i]->local_lock);
-  //     memcpy(cache[i]->data, buf, BLOCK_SECTOR_SIZE);
-  //     cache[i]->ref = true;
-  //     cache[i]->dirty = true;
-  //     old_lock_release(&cache[i]->local_lock);
-  //     old_lock_release(&global_cache_lock);
-  //     return;
-  //   }
-  // }
+  //if not found, we need to evict
+  evict_and_bring(sector);
+  for (int i = 0; i < CACHE_SIZE; i++) {
+    if (cache[i]->sector == sector) {
+      old_lock_acquire(&cache[i]->local_lock);
+      memcpy(cache[i]->data, buf, BLOCK_SECTOR_SIZE);
+      cache[i]->ref = true;
+      cache[i]->dirty = true;
+      old_lock_release(&cache[i]->local_lock);
+      old_lock_release(&global_cache_lock);
+      return;
+    }
+  }
   //NOT_REACHED();
   return;
 }
@@ -123,7 +123,7 @@ void flush() {
   for (int i = 0; i < CACHE_SIZE; i++) {
     old_lock_acquire(&cache[i]->local_lock);
     if (cache[i]->valid && cache[i]->dirty) {
-      block_write(fs_device, cache[clock_ptr]->sector, &cache[clock_ptr]->data);
+      block_write(fs_device, cache[i]->sector, &cache[i]->data);
     }
     cache[i]->valid = false;
     cache[i]->dirty = false;
