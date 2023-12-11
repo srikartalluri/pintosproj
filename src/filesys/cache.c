@@ -79,8 +79,8 @@ void cache_read(block_sector_t sector, uint8_t* buf) {
       return;
     }
   }
-  NOT_REACHED();
-  return;
+  // NOT_REACHED();
+  // return;
 }
 
 /* write buffer into sector */
@@ -114,7 +114,7 @@ void cache_write(block_sector_t sector, uint8_t* buf) {
       return;
     }
   }
-  NOT_REACHED();
+  //NOT_REACHED();
   return;
 }
 
@@ -123,7 +123,7 @@ void flush() {
   for (int i = 0; i < CACHE_SIZE; i++) {
     old_lock_acquire(&cache[i]->local_lock);
     if (cache[i]->valid && cache[i]->dirty) {
-      block_write(fs_device, cache[clock_ptr]->sector, &cache[clock_ptr]->data);
+      block_write(fs_device, cache[i]->sector, &cache[i]->data);
     }
     cache[i]->valid = false;
     cache[i]->dirty = false;

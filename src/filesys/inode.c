@@ -56,8 +56,8 @@ int get_byte_class(off_t block_id) {
 
 /* Get block_sector_t for position pos for a given inode */
 block_sector_t byte_to_sector(struct inode* inode, off_t pos) {
-  ASSERT(inode != NULL);
 
+  ASSERT(inode != NULL);
   struct inode_disk* inode_disk = malloc(sizeof(struct inode_disk));
   cache_read(inode->sector, inode_disk);
 
@@ -155,7 +155,7 @@ bool try_allocate(block_sector_t* block_ptr, struct inode_disk* inode) {
 /* Expands inode to become length long */
 static bool inode_resize(struct inode_disk* inode, off_t length) {
   // handle direct pointers
-  old_lock_acquire(&freemap_lock);
+
   for (off_t i = 0; i < DIRECT; i++) {
     if (length <= BLOCK_SECTOR_SIZE * i && inode->direct[i] != 0) {
       // shrink
@@ -240,7 +240,7 @@ static bool inode_resize(struct inode_disk* inode, off_t length) {
           free_map_release(buffer_b[j], 1);
           buffer_b[j] = 0;
         } else if (length > byte_value && buffer_b[j] == 0) {
-          if (!try_allocate(buffer_b[i], inode)) {
+          if (!try_allocate(&buffer_b[j], inode)) {
             free(buffer);
             free(buffer_b);
             return false;
@@ -266,12 +266,12 @@ static bool inode_resize(struct inode_disk* inode, off_t length) {
   }
 
   // handle doubly indirect pointers
-  old_lock_release(&freemap_lock);
+
   free(buffer);
   return true;
 }
 
-const int MAX_NUM_INODES = 500;
+const int MAX_NUM_INODES = 1000;
 
 /* Initializes an inode with LENGTH bytes of data and
    writes the new inode to sector SECTOR on the file system
@@ -295,6 +295,11 @@ bool inode_create(block_sector_t sector, off_t length) {
 
   disk_inode->length = 0;
   disk_inode->magic = INODE_MAGIC;
+  for (int i = 0; i < DIRECT; i++) {
+    disk_inode->direct[i] = 0;
+  }
+  disk_inode->indirect = 0;
+  disk_inode->doubly_indirect = 0;
   success = inode_resize(disk_inode, length);
   disk_inode->length = length;
 
@@ -331,13 +336,16 @@ struct inode* inode_open(block_sector_t sector) {
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
+  lock_init(&inode->inode_lock);
   return inode;
 }
 
 /* Reopens and returns INODE. */
 struct inode* inode_reopen(struct inode* inode) {
+
   if (inode != NULL)
     inode->open_cnt++;
+
   return inode;
 }
 
@@ -351,7 +359,6 @@ void inode_close(struct inode* inode) {
   /* Ignore null pointer. */
   if (inode == NULL)
     return;
-
   /* Release resources if this was the last opener. */
   if (--inode->open_cnt == 0) {
     /* Remove from inode list and release lock. */
@@ -365,7 +372,7 @@ void inode_close(struct inode* inode) {
       num_inodes_on_disk--;
     }
 
-    free(inode);
+    free(buf);
   }
 }
 
@@ -373,6 +380,7 @@ void inode_close(struct inode* inode) {
    has it open. */
 void inode_remove(struct inode* inode) {
   ASSERT(inode != NULL);
+
   inode->removed = true;
 }
 
@@ -383,7 +391,6 @@ off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset
   uint8_t* buffer = buffer_;
   off_t bytes_read = 0;
   uint8_t* bounce = NULL;
-
   while (size > 0) {
     /* Disk sector to read, starting byte offset within sector. */
     if (offset >= inode_length(inode)) {
@@ -423,7 +430,6 @@ off_t inode_read_at(struct inode* inode, void* buffer_, off_t size, off_t offset
     bytes_read += chunk_size;
   }
   free(bounce);
-
   return bytes_read;
 }
 
@@ -436,7 +442,6 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
   const uint8_t* buffer = buffer_;
   off_t bytes_written = 0;
   uint8_t* bounce = NULL;
-
   off_t ending_size = size + offset;
   struct inode_disk* disk_inode = malloc(sizeof(struct inode_disk));
   cache_read(inode->sector, disk_inode);
@@ -452,11 +457,14 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
   cache_write(inode->sector, disk_inode);
   free(disk_inode);
   if (!success) {
+
     return 0;
   }
 
-  if (inode->deny_write_cnt)
+  if (inode->deny_write_cnt) {
+
     return 0;
+  }
 
   while (size > 0) {
     /* Sector to write, starting byte offset within sector. */
@@ -509,6 +517,7 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
    May be called at most once per inode opener. */
 void inode_deny_write(struct inode* inode) {
   inode->deny_write_cnt++;
+
   ASSERT(inode->deny_write_cnt <= inode->open_cnt);
 }
 
@@ -516,6 +525,7 @@ void inode_deny_write(struct inode* inode) {
    Must be called once by each inode opener who has called
    inode_deny_write() on the inode, before closing the inode. */
 void inode_allow_write(struct inode* inode) {
+
   ASSERT(inode->deny_write_cnt > 0);
   ASSERT(inode->deny_write_cnt <= inode->open_cnt);
   inode->deny_write_cnt--;

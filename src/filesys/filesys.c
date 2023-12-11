@@ -9,7 +9,7 @@
 #include "threads/thread.h"
 #include "userprog/process.h"
 #include "list.h"
-
+#include "filesys/cache.h"
 /* Partition that contains the file system. */
 struct block* fs_device;
 
@@ -38,7 +38,9 @@ void filesys_init(bool format) {
 /* Shuts down the file system module, writing any unwritten data
    to disk. */
 void filesys_done(void) {
+  flush();
   free_map_close();
+
   inode_end();
 }
 

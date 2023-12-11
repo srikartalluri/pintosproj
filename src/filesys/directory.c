@@ -53,11 +53,15 @@ struct dir* dir_open(struct inode* inode) {
 
 /* Opens the root directory and returns a directory for it.
    Return true if successful, false on failure. */
-struct dir* dir_open_root(void) { return dir_open(inode_open(ROOT_DIR_SECTOR)); }
+struct dir* dir_open_root(void) {
+  return dir_open(inode_open(ROOT_DIR_SECTOR));
+}
 
 /* Opens and returns a new directory for the same inode as DIR.
    Returns a null pointer on failure. */
-struct dir* dir_reopen(struct dir* dir) { return dir_open(inode_reopen(dir->inode)); }
+struct dir* dir_reopen(struct dir* dir) {
+  return dir_open(inode_reopen(dir->inode));
+}
 
 /* Destroys DIR and frees associated resources. */
 void dir_close(struct dir* dir) {
@@ -68,7 +72,9 @@ void dir_close(struct dir* dir) {
 }
 
 /* Returns the inode encapsulated by DIR. */
-struct inode* dir_get_inode(struct dir* dir) { return dir->inode; }
+struct inode* dir_get_inode(struct dir* dir) {
+  return dir->inode;
+}
 
 /* Searches DIR for a file with the given NAME.
    If successful, returns true, sets *EP to the directory entry
